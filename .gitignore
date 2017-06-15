@@ -15,3 +15,5 @@ lib*.pc
 CMakeLists.txt.user
 /VersionInfo*.cmake
 Testing
+*.sublime-project
+*.sublime-workspace

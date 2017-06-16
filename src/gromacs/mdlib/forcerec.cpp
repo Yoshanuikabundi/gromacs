@@ -2424,6 +2424,7 @@ void init_forcerec(FILE              *fp,
         fr->adress_site           = ir->adress->site;
         fr->adress_ex_forcecap    = ir->adress->ex_forcecap;
         fr->adress_do_hybridpairs = ir->adress->do_hybridpairs;
+        //JTODO: add reference atoms to forcerec
 
 
         snew(fr->adress_group_explicit, ir->adress->n_energy_grps);

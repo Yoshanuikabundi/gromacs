@@ -457,6 +457,7 @@ typedef struct {
     t_forcetable *  atf_tabs;
     real            adress_ex_forcecap;
     gmx_bool        adress_do_hybridpairs;
+    //JTODO: add reference atoms to forcerec
 
     /* User determined parameters, copied from the inputrec */
     int  userint1;

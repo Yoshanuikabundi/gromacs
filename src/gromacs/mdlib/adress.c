@@ -535,6 +535,7 @@ adress_thermo_force(int                  start,
                     t_pbc *              pbc)
 {
     //JTODO: update thermo force function to use whatever ref implementation i come up with 
+    //JNOTE: interpolation is necessary, see http://pubs.acs.org/doi/full/10.1021/acs.jctc.6b00440
     int              iatom, n0, nnn, nrcg, i;
     int              adresstype;
     real             adressw, adressr;

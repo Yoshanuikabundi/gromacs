@@ -1660,6 +1660,7 @@ void do_force_cutsGROUP(FILE *fplog, t_commrec *cr,
     if (bStateChanged && bDoAdressWF)
     {
         /* need pbc for adress weight calculation with pbc_dx */
+        //JNOTE: Changes to signature of update weights functions need to be fixed here
         set_pbc(&pbc, inputrec->ePBC, box);
         if (fr->adress_site == eAdressSITEcog)
         {

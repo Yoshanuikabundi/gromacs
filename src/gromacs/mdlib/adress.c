@@ -67,7 +67,7 @@ adress_weight(rvec                 x,
     /* Store distance from ref to this atom in dx */
     if (adresstype == eAdressAtoms)
     {
-        //TODO: Write code to define n_dxs and dxs from the reference atoms
+        //JTODO: Write code to define n_dxs and dxs from the reference atoms 
     }
     else 
     {
@@ -104,7 +104,7 @@ adress_weight(rvec                 x,
             break;
         case eAdressAtoms:
             /* default to explicit simulation until everything's written
-             * TODO: Write code to calculate weight for Adress type atoms. 
+             * JTODO: Write code to calculate weight for Adress type atoms. 
              *      see comments below*/
             return 1
             // // points at center of ref, assuming cubic geometry
@@ -534,7 +534,7 @@ adress_thermo_force(int                  start,
                     t_mdatoms *          mdatoms,
                     t_pbc *              pbc)
 {
-    //TODO: update thermo force function to use whatever ref implementation i come up with
+    //JTODO: update thermo force function to use whatever ref implementation i come up with 
     int              iatom, n0, nnn, nrcg, i;
     int              adresstype;
     real             adressw, adressr;

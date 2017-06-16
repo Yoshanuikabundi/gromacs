@@ -50,25 +50,37 @@ adress_weight(rvec                 x,
               int                  adresstype,
               real                 adressr,
               real                 adressw,
-              rvec      *          ref,
               t_pbc      *         pbc,
               t_forcerec *         fr )
 {
-    int  i;
+    int  i, j;
+    int  n_dxs;
     real l2 = adressr+adressw;
     real sqr_dl, dl;
     real tmp;
     rvec dx;
+    rvec *ref 
+
 
     sqr_dl = 0.0;
 
-    if (pbc)
+    /* Store distance from ref to this atom in dx */
+    if (adresstype == eAdressAtoms)
     {
-        pbc_dx(pbc, (*ref), x, dx);
+        //TODO: Write code to define n_dxs and dxs from the reference atoms
     }
-    else
+    else 
     {
-        rvec_sub((*ref), x, dx);
+
+        ref = &(fr->adress_refs);
+        if (pbc)
+        {
+            pbc_dx(pbc, (*ref), x, dx);
+        }
+        else
+        {
+            rvec_sub((*ref), x, dx);
+        }
     }
 
     switch (adresstype)
@@ -90,6 +102,33 @@ adress_weight(rvec                 x,
                 sqr_dl    += dx[i]*dx[i];
             }
             break;
+        case eAdressAtoms:
+            /* default to explicit simulation until everything's written
+             * TODO: Write code to calculate weight for Adress type atoms. 
+             *      see comments below*/
+            return 1
+            // // points at center of ref, assuming cubic geometry
+            // // iterate over each ref 
+            // for (i = 0; i < n_dxs; i++)
+            // {
+            //     tmp = 0;
+            //     // Iterate over each dimension 
+            //     for (j = 0; j < 3; j++)
+            //     {
+            //         tmp    += dxs[i][j]*dxs[i][j];
+            //     }
+            //     if (i == 0)
+            //     {
+            //         // First time - set sqr_dl
+            //         sqr_dl = tmp;
+            //     } 
+            //     else 
+            //     {   
+            //         // Only take the smallest distance from a ref
+            //         sqr_dl = (tmp < sqr_dl) ? tmp : sqr_dl;
+            //     }
+            // }
+
         default:
             /* default to explicit simulation */
             return 1;
@@ -130,7 +169,6 @@ update_adress_weights_com(FILE gmx_unused    * fplog,
     rvec           ix;
     int            adresstype;
     real           adressr, adressw;
-    rvec *         ref;
     real *         massT;
     real *         wf;
 
@@ -146,7 +184,6 @@ update_adress_weights_com(FILE gmx_unused    * fplog,
     adressw            = fr->adress_hy_width;
     massT              = mdatoms->massT;
     wf                 = mdatoms->wf;
-    ref                = &(fr->adress_refs);
 
 
     /* Since this is center of mass AdResS, the vsite is not guaranteed
@@ -170,7 +207,7 @@ update_adress_weights_com(FILE gmx_unused    * fplog,
         nrcg    = k1-k0;
         if (nrcg == 1)
         {
-            wf[k0] = adress_weight(x[k0], adresstype, adressr, adressw, ref, pbc, fr);
+            wf[k0] = adress_weight(x[k0], adresstype, adressr, adressw, pbc, fr);
             if (wf[k0] == 0)
             {
                 n_cg++;
@@ -228,7 +265,7 @@ update_adress_weights_com(FILE gmx_unused    * fplog,
             }
 
             /* Set wf of all atoms in charge group equal to wf of com */
-            wf[k0] = adress_weight(ix, adresstype, adressr, adressw, ref, pbc, fr);
+            wf[k0] = adress_weight(ix, adresstype, adressr, adressw, pbc, fr);
 
             if (wf[k0] == 0)
             {
@@ -266,7 +303,6 @@ void update_adress_weights_atom_per_atom(
     rvec           ix;
     int            adresstype;
     real           adressr, adressw;
-    rvec *         ref;
     real *         massT;
     real *         wf;
 
@@ -282,7 +318,6 @@ void update_adress_weights_atom_per_atom(
     adressw            = fr->adress_hy_width;
     massT              = mdatoms->massT;
     wf                 = mdatoms->wf;
-    ref                = &(fr->adress_refs);
 
     cgindex = cgs->index;
 
@@ -299,7 +334,7 @@ void update_adress_weights_atom_per_atom(
 
         for (k = (k0); (k < k1); k++)
         {
-            wf[k] = adress_weight(x[k], adresstype, adressr, adressw, ref, pbc, fr);
+            wf[k] = adress_weight(x[k], adresstype, adressr, adressw, pbc, fr);
             if (wf[k] == 0)
             {
                 n_cg++;
@@ -330,7 +365,6 @@ update_adress_weights_cog(t_iparams            ip[],
     t_iatom        avsite, ai, aj, ak, al;
     t_iatom *      ia;
     real           adressr, adressw;
-    rvec *         ref;
     real *         wf;
     int            n_hyb, n_ex, n_cg;
 
@@ -338,7 +372,6 @@ update_adress_weights_cog(t_iparams            ip[],
     adressr            = fr->adress_ex_width;
     adressw            = fr->adress_hy_width;
     wf                 = mdatoms->wf;
-    ref                = &(fr->adress_refs);
 
 
     n_hyb = 0;
@@ -364,7 +397,7 @@ update_adress_weights_cog(t_iparams            ip[],
                 /* The vsite and first constructing atom */
                 avsite     = ia[1];
                 ai         = ia[2];
-                wf[avsite] = adress_weight(x[avsite], adresstype, adressr, adressw, ref, pbc, fr);
+                wf[avsite] = adress_weight(x[avsite], adresstype, adressr, adressw, pbc, fr);
                 wf[ai]     = wf[avsite];
 
                 if (wf[ai]  == 0)
@@ -462,7 +495,6 @@ update_adress_weights_atom(int                  cg0,
     atom_id *      cgindex;
     int            adresstype;
     real           adressr, adressw;
-    rvec *         ref;
     real *         massT;
     real *         wf;
 
@@ -471,7 +503,6 @@ update_adress_weights_atom(int                  cg0,
     adressw            = fr->adress_hy_width;
     massT              = mdatoms->massT;
     wf                 = mdatoms->wf;
-    ref                = &(fr->adress_refs);
     cgindex            = cgs->index;
 
     /* Only use first atom in charge group.
@@ -483,7 +514,7 @@ update_adress_weights_atom(int                  cg0,
     {
         k0      = cgindex[icg];
         k1      = cgindex[icg+1];
-        wf[k0]  = adress_weight(x[k0], adresstype, adressr, adressw, ref, pbc, fr);
+        wf[k0]  = adress_weight(x[k0], adresstype, adressr, adressw, pbc, fr);
 
         /* Set wf of all atoms in charge group equal to wf of first atom in charge group*/
         for (k = (k0+1); (k < k1); k++)
@@ -503,6 +534,7 @@ adress_thermo_force(int                  start,
                     t_mdatoms *          mdatoms,
                     t_pbc *              pbc)
 {
+    //TODO: update thermo force function to use whatever ref implementation i come up with
     int              iatom, n0, nnn, nrcg, i;
     int              adresstype;
     real             adressw, adressr;

@@ -1716,6 +1716,7 @@ t_forcetable make_atf_table(FILE *out, const output_env_t oenv,
      * use etiNR (since we only have one table, but ...)
      */
     snew(td, 1);
+    // TODO: Figure out whether special table dimensions should be set
 
     if (fr->adress_type == eAdressSphere)
     {

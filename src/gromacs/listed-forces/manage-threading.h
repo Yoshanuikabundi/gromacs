@@ -3,7 +3,7 @@
  *
  * Copyright (c) 1991-2000, University of Groningen, The Netherlands.
  * Copyright (c) 2001-2004, The GROMACS development team.
- * Copyright (c) 2013,2014,2015,2016, by the GROMACS development team, led by
+ * Copyright (c) 2013,2014,2015,2016,2018, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -46,21 +46,23 @@
 
 #include <cstdio>
 
-#include "gromacs/mdtypes/forcerec.h"
-#include "gromacs/topology/idef.h"
+struct bonded_threading_t;
+struct t_idef;
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-/*! \brief Divide the listed interactions over the threads
+/*! \brief Divide the listed interactions over the threads and GPU
  *
  * Uses fr->nthreads for the number of threads, and sets up the
- * thread-force buffer reduction. This should be called each time the
- * bonded setup changes; i.e. at start-up without domain decomposition
- * and at DD.
+ * thread-force buffer reduction.
+ * This should be called each time the bonded setup changes;
+ * i.e. at start-up without domain decomposition and at DD.
  */
-void setup_bonded_threading(t_forcerec *fr, t_idef *idef);
+void setup_bonded_threading(bonded_threading_t *bt,
+                            int                 numAtoms,
+                            bool                useGpuForBondes,
+                            const t_idef       &idef);
+
+//! Destructor.
+void tear_down_bonded_threading(bonded_threading_t *bt);
 
 /*! \brief Initialize the bonded threading data structures
  *
@@ -68,10 +70,6 @@ void setup_bonded_threading(t_forcerec *fr, t_idef *idef);
  * A pointer to this struct is returned as \p *bb_ptr.
  */
 void init_bonded_threading(FILE *fplog, int nenergrp,
-                           struct bonded_threading_t **bt_ptr);
-
-#ifdef __cplusplus
-}
-#endif
+                           bonded_threading_t **bt_ptr);
 
 #endif

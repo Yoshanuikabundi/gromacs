@@ -1,7 +1,7 @@
 #
 # This file is part of the GROMACS molecular simulation package.
 #
-# Copyright (c) 2014,2017, by the GROMACS development team, led by
+# Copyright (c) 2014,2017,2018,2019, by the GROMACS development team, led by
 # Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
 # and including many others, as listed in the AUTHORS file in the
 # top-level source directory and at http://www.gromacs.org.
@@ -32,9 +32,9 @@
 # To help us fund GROMACS development, we humbly ask that you cite
 # the research papers on the package. Check out http://www.gromacs.org.
 
-# Custom build type "TSAN", to be used for compiling GROMACS 
-# with clang 3.4 or gcc 4.8 (currently pre-release) with ThreadSanitizer
-# (aka "TSan") turned on, so that the tests can be run to detect data races.
+# Custom build type "TSAN", to be used for compiling GROMACS with
+# clang or gcc with ThreadSanitizer (aka "TSan") turned on, so that
+# the tests can be run to detect data races.
 #
 # The main advantage of the clang version is that there can be a
 # suppressions file that acts at compile time, though there is no use of 
@@ -73,20 +73,14 @@ foreach(_language C CXX)
     string(REPLACE "X" "+" _human_readable_language ${_language})
 
     if (CMAKE_${_language}_COMPILER_ID MATCHES "GNU")
-        set(CMAKE_${_language}_FLAGS_TSAN "${_flags} -pie -fPIE" CACHE STRING "${_human_readable_language} flags for thread sanitizer")
+        set(CMAKE_${_language}_FLAGS_TSAN "${_flags} -pie -fPIE" CACHE STRING "${_human_readable_language} flags for thread sanitizer" FORCE)
     else()
-        set(CMAKE_${_language}_FLAGS_TSAN ${_flags} CACHE STRING "${_human_readable_language} flags for thread sanitizer")
+        set(CMAKE_${_language}_FLAGS_TSAN ${_flags} CACHE STRING "${_human_readable_language} flags for thread sanitizer" FORCE)
     endif()
     mark_as_advanced(CMAKE_${_language}_FLAGS_TSAN)
     string(TOUPPER "${CMAKE_BUILD_TYPE}" _cmake_build_type)
     if (_cmake_build_type STREQUAL TSAN)
         set(TMPI_ATOMICS_DISABLED 1)
-        if (NOT((CMAKE_${_language}_COMPILER_ID MATCHES "Clang" AND
-                    CMAKE_${_language}_COMPILER_VERSION VERSION_GREATER 3.2.999)
-             OR (CMAKE_${_language}_COMPILER_ID MATCHES "GNU" AND
-                    CMAKE_${_language}_COMPILER_VERSION VERSION_GREATER 4.7.999)))
-            message(FATAL_ERROR "The ThreadSanitizer build is only available with clang ${_human_readable_language} >=3.3 and gnu ${_human_readable_language} >=4.8.")
-        endif()
     endif()
 
 endforeach()

@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2016,2017, by the GROMACS development team, led by
+ * Copyright (c) 2016,2017,2018, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -39,6 +39,7 @@
 #include <memory>
 
 #include "gromacs/applied-forces/electricfield.h"
+#include "gromacs/compat/make_unique.h"
 #include "gromacs/mdtypes/iforceprovider.h"
 #include "gromacs/mdtypes/imdmodule.h"
 #include "gromacs/mdtypes/imdoutputprovider.h"
@@ -48,12 +49,14 @@
 #include "gromacs/options/optionsection.h"
 #include "gromacs/options/treesupport.h"
 #include "gromacs/utility/keyvaluetree.h"
+#include "gromacs/utility/keyvaluetreebuilder.h"
+#include "gromacs/utility/keyvaluetreetransform.h"
 #include "gromacs/utility/smalloc.h"
 
 namespace gmx
 {
 
-class MDModules::Impl : public IMDOutputProvider, public IForceProvider
+class MDModules::Impl : public IMDOutputProvider
 {
     public:
 
@@ -71,30 +74,29 @@ class MDModules::Impl : public IMDOutputProvider, public IForceProvider
         }
 
         // From IMDOutputProvider
-        virtual void initOutput(FILE *fplog, int nfile, const t_filenm fnm[],
-                                bool bAppendFiles, const gmx_output_env_t *oenv)
+        void initOutput(FILE *fplog, int nfile, const t_filenm fnm[],
+                        bool bAppendFiles, const gmx_output_env_t *oenv) override
         {
             field_->outputProvider()->initOutput(fplog, nfile, fnm, bAppendFiles, oenv);
         }
-        virtual void finishOutput()
+        void finishOutput() override
         {
             field_->outputProvider()->finishOutput();
         }
 
-        // From IForceProvider
-        virtual void initForcerec(t_forcerec *fr)
-        {
-            field_->forceProvider()->initForcerec(fr);
-        }
-        virtual void calculateForces(const t_commrec  * /*cr*/,
-                                     const t_mdatoms  * /*mdatoms*/,
-                                     PaddedRVecVector * /*force*/,
-                                     double             /*t*/)
-        {
-            // not called currently
-        }
+        std::unique_ptr<IMDModule>      field_;
+        std::unique_ptr<ForceProviders> forceProviders_;
 
-        std::unique_ptr<IMDModule> field_;
+        /*! \brief List of registered MDModules
+         *
+         * Note that MDModules::Impl owns this container, but it is only used by
+         * the MDModules::initForceProviders() function. To be consistent with
+         * IMDModule's vision, as indicated by its docs, we should
+         * \todo update IMDModule docs to allow nullptr return values
+         * \todo check for nullptr returned by IMDModule methods.
+         * \todo include field_ in modules_
+         */
+        std::vector< std::shared_ptr<IMDModule> > modules_;
 };
 
 MDModules::MDModules() : impl_(new Impl)
@@ -107,10 +109,13 @@ MDModules::~MDModules()
 
 void MDModules::initMdpTransform(IKeyValueTreeTransformRules *rules)
 {
-    // TODO The transform rules for applied-forces modules should
-    // embed the necessary prefix (and similarly for other groupings
-    // of modules). For now, electric-field embeds this itself.
-    impl_->field_->mdpOptionProvider()->initMdpTransform(rules);
+    auto appliedForcesScope = rules->scopedTransform("/applied-forces");
+    impl_->field_->mdpOptionProvider()->initMdpTransform(appliedForcesScope.rules());
+}
+
+void MDModules::buildMdpOutput(KeyValueTreeObjectBuilder *builder)
+{
+    impl_->field_->mdpOptionProvider()->buildMdpOutput(builder);
 }
 
 void MDModules::assignOptionsToModules(const KeyValueTreeObject  &params,
@@ -128,9 +133,11 @@ void MDModules::adjustInputrecBasedOnModules(t_inputrec *ir)
     Options moduleOptions;
     impl_->makeModuleOptions(&moduleOptions);
 
+    checkForUnknownOptionsInKeyValueTree(*ir->params, moduleOptions);
+
     std::unique_ptr<KeyValueTreeObject> params(
             new KeyValueTreeObject(
-                    gmx::adjustKeyValueTreeFromOptions(*ir->params, moduleOptions)));
+                    adjustKeyValueTreeFromOptions(*ir->params, moduleOptions)));
     delete ir->params;
     ir->params = params.release();
 }
@@ -140,9 +147,22 @@ IMDOutputProvider *MDModules::outputProvider()
     return impl_.get();
 }
 
-IForceProvider *MDModules::forceProvider()
+ForceProviders *MDModules::initForceProviders()
 {
-    return impl_.get();
+    GMX_RELEASE_ASSERT(impl_->forceProviders_ == nullptr,
+                       "Force providers initialized multiple times");
+    impl_->forceProviders_ = compat::make_unique<ForceProviders>();
+    impl_->field_->initForceProviders(impl_->forceProviders_.get());
+    for (auto && module : impl_->modules_)
+    {
+        module->initForceProviders(impl_->forceProviders_.get());
+    }
+    return impl_->forceProviders_.get();
+}
+
+void MDModules::add(std::shared_ptr<gmx::IMDModule> module)
+{
+    impl_->modules_.emplace_back(std::move(module));
 }
 
 } // namespace gmx

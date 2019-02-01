@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2012,2013,2014,2015,2016, by the GROMACS development team, led by
+ * Copyright (c) 2012,2013,2014,2015,2016,2018,2019, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -36,18 +36,6 @@
 #ifndef _nbnxn_consts_h
 #define _nbnxn_consts_h
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-
-/* With CPU kernels the i-cluster size is always 4 atoms.
- * With x86 SIMD the j-cluster size can be 2, 4 or 8, otherwise 4.
- */
-#define NBNXN_CPU_CLUSTER_I_SIZE       4
-
-#define NBNXN_CPU_CLUSTER_I_SIZE_2LOG  2
-
 // Lower limit for square interaction distances in nonbonded kernels.
 // For smaller values we will overflow when calculating r^-1 or r^-12, but
 // to keep it simple we always apply the limit from the tougher r^-12 condition.
@@ -63,23 +51,12 @@ extern "C" {
 #endif
 
 
-/* Cluster-pair Interaction masks for 4xN and 2xNN kernels.
- * Bit i*CJ_SIZE + j tells if atom i and j interact.
+/* The number of clusters in a super-cluster, used for GPU */
+#define c_nbnxnGpuNumClusterPerSupercluster  8
+
+/* With GPU kernels we group cluster pairs in 4 to optimize memory usage
+ * of integers containing 32 bits.
  */
-/* All interaction mask is the same for all kernels */
-#define NBNXN_INTERACTION_MASK_ALL        0xffffffffU
-/* 4x4 kernel diagonal mask */
-#define NBNXN_INTERACTION_MASK_DIAG       0x08ceU
-/* 4x2 kernel diagonal masks */
-#define NBNXN_INTERACTION_MASK_DIAG_J2_0  0x0002U
-#define NBNXN_INTERACTION_MASK_DIAG_J2_1  0x002fU
-/* 4x8 kernel diagonal masks */
-#define NBNXN_INTERACTION_MASK_DIAG_J8_0  0xf0f8fcfeU
-#define NBNXN_INTERACTION_MASK_DIAG_J8_1  0x0080c0e0U
-
-
-#ifdef __cplusplus
-}
-#endif
+#define c_nbnxnGpuJgroupSize (32/c_nbnxnGpuNumClusterPerSupercluster)
 
 #endif

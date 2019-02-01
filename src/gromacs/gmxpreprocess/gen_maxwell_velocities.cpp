@@ -3,7 +3,7 @@
  *
  * Copyright (c) 1991-2000, University of Groningen, The Netherlands.
  * Copyright (c) 2001-2004, The GROMACS development team.
- * Copyright (c) 2013,2014,2015,2016, by the GROMACS development team, led by
+ * Copyright (c) 2013,2014,2015,2016,2018,2019, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -53,25 +53,24 @@
 static void low_mspeed(real tempi,
                        gmx_mtop_t *mtop, rvec v[], gmx::ThreeFry2x64<> * rng)
 {
-    int                                     i, m, nrdf;
-    real                                    boltz, sd;
-    real                                    ekin, temp, mass, scal;
-    gmx_mtop_atomloop_all_t                 aloop;
-    const t_atom                           *atom;
+    int                                     nrdf;
+    real                                    boltz;
+    real                                    ekin, temp;
     gmx::TabulatedNormalDistribution<real>  normalDist;
 
     boltz = BOLTZ*tempi;
     ekin  = 0.0;
     nrdf  = 0;
-    aloop = gmx_mtop_atomloop_all_init(mtop);
-    while (gmx_mtop_atomloop_all_next(aloop, &i, &atom))
+    for (const AtomProxy atomP : AtomRange(*mtop))
     {
-        mass = atom->m;
+        const t_atom &local = atomP.atom();
+        int           i     = atomP.globalAtomNumber();
+        real          mass  = local.m;
         if (mass > 0)
         {
             rng->restart(i, 0);
-            sd = std::sqrt(boltz/mass);
-            for (m = 0; (m < DIM); m++)
+            real sd = std::sqrt(boltz/mass);
+            for (int m = 0; (m < DIM); m++)
             {
                 v[i][m] = sd*normalDist(*rng);
                 ekin   += 0.5*mass*v[i][m]*v[i][m];
@@ -82,10 +81,10 @@ static void low_mspeed(real tempi,
     temp = (2.0*ekin)/(nrdf*BOLTZ);
     if (temp > 0)
     {
-        scal = std::sqrt(tempi/temp);
-        for (i = 0; (i < mtop->natoms); i++)
+        real scal = std::sqrt(tempi/temp);
+        for (int i = 0; (i < mtop->natoms); i++)
         {
-            for (m = 0; (m < DIM); m++)
+            for (int m = 0; (m < DIM); m++)
             {
                 v[i][m] *= scal;
             }
@@ -115,7 +114,7 @@ void maxwell_speed(real tempi, unsigned int seed, gmx_mtop_t *mtop, rvec v[])
     low_mspeed(tempi, mtop, v, &rng);
 }
 
-static real calc_cm(int natoms, real mass[], rvec x[], rvec v[],
+static real calc_cm(int natoms, const real mass[], rvec x[], rvec v[],
                     rvec xcm, rvec vcm, rvec acm, matrix L)
 {
     rvec dx, a0;
@@ -148,7 +147,7 @@ static real calc_cm(int natoms, real mass[], rvec x[], rvec v[],
 
 #define PVEC(str, v) fprintf(log, \
                              "%s[X]: %10.5e  %s[Y]: %10.5e  %s[Z]: %10.5e\n", \
-                             str, v[0], str, v[1], str, v[2])
+                             str, (v)[0], str, (v)[1], str, (v)[2])
 #ifdef DEBUG
     PVEC("xcm", xcm);
     PVEC("acm", acm);

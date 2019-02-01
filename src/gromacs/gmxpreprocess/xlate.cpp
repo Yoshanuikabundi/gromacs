@@ -3,7 +3,7 @@
  *
  * Copyright (c) 1991-2000, University of Groningen, The Netherlands.
  * Copyright (c) 2001-2004, The GROMACS development team.
- * Copyright (c) 2013,2014,2015,2017, by the GROMACS development team, led by
+ * Copyright (c) 2013,2014,2015,2017,2018,2019, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -38,10 +38,14 @@
 
 #include "xlate.h"
 
-#include <ctype.h>
-#include <string.h>
+#include <cctype>
+#include <cstring>
+
+#include <string>
+#include <vector>
 
 #include "gromacs/gmxpreprocess/fflibutil.h"
+#include "gromacs/gmxpreprocess/grompp-impl.h"
 #include "gromacs/gmxpreprocess/hackblock.h"
 #include "gromacs/topology/residuetypes.h"
 #include "gromacs/topology/symtab.h"
@@ -58,7 +62,7 @@ typedef struct {
     char *replace;
 } t_xlate_atom;
 
-static void get_xlatoms(const char *fn, FILE *fp,
+static void get_xlatoms(const std::string &filename, FILE *fp,
                         int *nptr, t_xlate_atom **xlptr)
 {
     char          filebase[STRLEN];
@@ -68,7 +72,7 @@ static void get_xlatoms(const char *fn, FILE *fp,
     int           n, na, idum;
     t_xlate_atom *xl;
 
-    fflib_filename_base(fn, filebase, STRLEN);
+    fflib_filename_base(filename.c_str(), filebase, STRLEN);
 
     n  = *nptr;
     xl = *xlptr;
@@ -85,7 +89,7 @@ static void get_xlatoms(const char *fn, FILE *fp,
         }
         if (na != 3)
         {
-            gmx_fatal(FARGS, "Expected a residue name and two atom names in file '%s', not '%s'", fn, line);
+            gmx_fatal(FARGS, "Expected a residue name and two atom names in file '%s', not '%s'", filename.c_str(), line);
         }
 
         srenew(xl, n+1);
@@ -133,39 +137,33 @@ static void done_xlatom(int nxlate, t_xlate_atom *xlatom)
     sfree(xlatom);
 }
 
-void rename_atoms(const char *xlfile, const char *ffdir,
+void rename_atoms(const char* xlfile, const char *ffdir,
                   t_atoms *atoms, t_symtab *symtab, const t_restp *restp,
-                  gmx_bool bResname, gmx_residuetype_t *rt, gmx_bool bReorderNum,
-                  gmx_bool bVerbose)
+                  bool bResname, ResidueType *rt, bool bReorderNum,
+                  bool bVerbose)
 {
-    FILE         *fp;
     int           nxlate, a, i, resind;
     t_xlate_atom *xlatom;
-    int           nf;
-    char        **f;
     char          c, *rnm, atombuf[32], *ptr0, *ptr1;
-    gmx_bool      bReorderedNum, bRenamed, bMatch;
-    gmx_bool      bStartTerm, bEndTerm;
+    bool          bReorderedNum, bRenamed, bMatch;
+    bool          bStartTerm, bEndTerm;
 
     nxlate = 0;
     xlatom = nullptr;
     if (xlfile != nullptr)
     {
-        fp = libopen(xlfile);
-        get_xlatoms(xlfile, fp, &nxlate, &xlatom);
-        fclose(fp);
+        gmx::FilePtr fp = gmx::openLibraryFile(xlfile);
+        get_xlatoms(xlfile, fp.get(), &nxlate, &xlatom);
     }
     else
     {
-        nf = fflib_search_file_end(ffdir, ".arn", FALSE, &f);
-        for (i = 0; i < nf; i++)
+        std::vector<std::string> fns = fflib_search_file_end(ffdir, ".arn", FALSE);
+        for (const auto &filename : fns)
         {
-            fp = fflib_open(f[i]);
-            get_xlatoms(f[i], fp, &nxlate, &xlatom);
+            FILE * fp = fflib_open(filename);
+            get_xlatoms(filename, fp, &nxlate, &xlatom);
             gmx_ffclose(fp);
-            sfree(f[i]);
         }
-        sfree(f);
     }
 
     for (a = 0; (a < atoms->nr); a++)
@@ -191,7 +189,7 @@ void rename_atoms(const char *xlfile, const char *ffdir,
             if (isdigit(atombuf[0]))
             {
                 c = atombuf[0];
-                for (i = 0; ((size_t)i < strlen(atombuf)-1); i++)
+                for (i = 0; (static_cast<size_t>(i) < strlen(atombuf)-1); i++)
                 {
                     atombuf[i] = atombuf[i+1];
                 }
@@ -209,15 +207,15 @@ void rename_atoms(const char *xlfile, const char *ffdir,
                 /* Match the residue name */
                 bMatch = (xlatom[i].res == nullptr ||
                           (gmx_strcasecmp("protein-nterm", xlatom[i].res) == 0 &&
-                           gmx_residuetype_is_protein(rt, rnm) && bStartTerm) ||
+                           rt->namedResidueHasType(rnm, "Protein") && bStartTerm) ||
                           (gmx_strcasecmp("protein-cterm", xlatom[i].res) == 0 &&
-                           gmx_residuetype_is_protein(rt, rnm) && bEndTerm) ||
+                           rt->namedResidueHasType(rnm, "Protein") && bEndTerm) ||
                           (gmx_strcasecmp("protein", xlatom[i].res) == 0 &&
-                           gmx_residuetype_is_protein(rt, rnm)) ||
+                           rt->namedResidueHasType(rnm, "Protein")) ||
                           (gmx_strcasecmp("DNA", xlatom[i].res) == 0 &&
-                           gmx_residuetype_is_dna(rt, rnm)) ||
+                           rt->namedResidueHasType(rnm, "DNA")) ||
                           (gmx_strcasecmp("RNA", xlatom[i].res) == 0 &&
-                           gmx_residuetype_is_rna(rt, rnm)));
+                           rt->namedResidueHasType(rnm, "RNA")));
                 if (!bMatch)
                 {
                     ptr0 = rnm;

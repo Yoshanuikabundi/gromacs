@@ -55,7 +55,7 @@ testing. Their implementations can be found in ``cmake/gmxBuildTypeXXX.cmake``.
 **Reference**
   This build type compiles a version of |Gromacs| aimed solely at correctness. All
   parallelization and optimization possibilities are disabled. This build type is
-  compiled with gcc 4.7 to generate the regression test reference values, against
+  compiled with gcc 5 to generate the regression test reference values, against
   which all other |Gromacs| builds are tested.
 
 **RelWithAssert**
@@ -69,19 +69,19 @@ testing. Their implementations can be found in ``cmake/gmxBuildTypeXXX.cmake``.
   be useful for the tools.
 
 **TSAN**
-  Builds |Gromacs| for use with ThreadSanitzer in gcc >= 4.8 and clang
-  >= 3.4 (http://clang.llvm.org/docs/ThreadSanitizer.html) to detect
+  Builds |Gromacs| for use with ThreadSanitzer in gcc and clang
+  (http://clang.llvm.org/docs/ThreadSanitizer.html) to detect
   data races. This disables the use of atomics in ThreadMPI,
   preferring the mutex-based implementation.
 
 **ASAN**
-  Builds |Gromacs| for use with AddressSanitzer in gcc >= 4.8 and
-  clang >= 3.4 (http://clang.llvm.org/docs/AddressSanitizer.html) to
+  Builds |Gromacs| for use with AddressSanitzer in gcc and
+  clang (http://clang.llvm.org/docs/AddressSanitizer.html) to
   detect many kinds of memory mis-use. By default, AddressSanitizer
   includes LeakSanitizer.
 
 **MSAN**
-  Builds |Gromacs| for use with AddressSanitzer in clang >= 3.4
+  Builds |Gromacs| for use with AddressSanitzer in clang
   (http://clang.llvm.org/docs/MemorySanitizer.html) to detect
   reads of unitialized memory. This functionality requires that
   dependencies of the |Gromacs| build have been built in a compatible
@@ -208,16 +208,29 @@ Variables affecting compilation/linking
    subcounters which are available.
    Defaults to ``OFF``.
 
-.. cmake:: GMX_DATA_INSTALL_DIR
+.. cmake:: GMX_ENABLE_CCACHE
 
-   Sets the directory under :file:`share/` where data files are installed.
-   The default is ``gromacs``, which puts the files under
-   file:`share/gromacs/`.
+    If set to ``ON``, attempts to set up the `ccache <https://ccache.samba.org>`_
+    caching compiler wrapper to speed up repeated builds.
+    The ``ccache`` executable is searched for with ``find_package()`` if CMake
+    is being run with a compatible build type.
+    If the executable is found and a compatible compiler is configured,
+    CMake launch wrapper scripts are set.
+    If enabled, the ``ccache`` executable location discovered by CMake must be
+    accessible during build, as well.
+    Defaults to ``OFF`` to minimize build system complexity.
+
+.. cmake:: GMX_INSTALL_DATASUBDIR
+
+   Sets the subdirectory under CMAKE_INSTALL_DATADIR where GROMACS-specific
+   read-only architecture-independent data files are installed. The default
+   is ``gromacs``, which means the files will go under ``share/gromacs``.
+   To alter the ``share`` part, change CMAKE_INSTALL_DATADIR.
    See :doc:`relocatable-binaries` for how this influences the build.
 
 .. cmake:: GMX_DOUBLE
 
-   Many part of GROMACS are implemented in terms of "real" precision,
+   Many part of |Gromacs| are implemented in terms of "real" precision,
    which is actually either a single- or double-precision type,
    according to the value of this flag. Some parts of the code
    deliberately use single- or double-precision types, and these are
@@ -257,7 +270,15 @@ Variables affecting compilation/linking
 
 .. cmake:: GMX_GPU
 
-.. cmake:: GMX_LIB_INSTALL_DIR
+.. cmake:: GMX_CLANG_CUDA
+
+   Use clang for compiling CUDA GPU code, both host and device.
+
+.. cmake:: GMX_CUDA_CLANG_FLAGS
+
+    Pass additional CUDA-only compiler flags to clang using this variable.
+
+.. cmake:: CMAKE_INSTALL_LIBDIR
 
    Sets the installation directory for libraries (default is determined by
    standard CMake package ``GNUInstallDirs``).
@@ -328,13 +349,14 @@ Variables affecting the ``all`` target
 Variables affecting special targets
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. cmake:: CPPCHECK_XML_OUTPUT
+.. cmake:: GMXAPI
 
-   If set ``ON``, the ``cppcheck`` target generates reports for all found
-   issues in XML format.  This is used by Jenkins, which parses the XML files
-   to show the issues on the web page.
-   If ``OFF`` (the default), issues are reported as plain text to standard
-   output and to a text file.
+    If set ``ON``, the additional ``gmxapi`` C++ library is configured and the
+    ``gmxapi`` headers will be installed. Provides the additional build tree
+    targets ``gmxapi-cppdocs`` and ``gmxapi-cppdocs-dev`` when Doxygen is
+    available. Also exports CMake configuration files for ``gmxapi`` that allow
+    ``find_package(gmxapi)`` to import the ``Gromacs::gmxapi`` CMake target in
+    client projects that search the GROMACS installation root.
 
 .. cmake:: GMX_BUILD_MANUAL
 
@@ -429,10 +451,6 @@ completion
    :cmake:`GMX_BUILD_HELP` is not ``OFF``, and it is run automatically as part
    of the default ``all`` target.  See :cmake:`GMX_BUILD_HELP`.
    All CMake code is in :file:`src/programs/`.
-cppcheck
-   Runs :command:`cppcheck` with the flags used in Jenkins for all the source
-   files.  This target is directly used by the Jenkins cppcheck job.
-   All CMake code is in :file:`tests/CppCheck.cmake`.
 dep-graphs*
    Builds include dependency graphs for the source files using :command:`dot`
    from graphviz.
@@ -444,6 +462,12 @@ doxygen-*
    turn runs as part of the Jenkins documentation job.
    All CMake code is in :file:`docs/doxygen/`.
    See :doc:`doxygen`.
+gmxapi-cppdocs
+    Builds API documentation for gmxapi. Useful to authors of client software.
+    Documentation is generated in :file:`docs/api-user` in the build directory.
+gmxapi-cppdocs-dev
+    Extract documentation for gmxapi and GROMACS developers to
+    :file:`docs/api-dev`.
 install-guide
    Runs Sphinx to generate a plain-text INSTALL file for the source package.
    The files is generated at :file:`docs/install-guide/text/`, from where it
@@ -518,7 +542,7 @@ The build system uses a few different mechanisms to influence the compilation:
 
   Additionally, the following file is generated by the build system:
 
-  :file:`baseversion-gen.c`
+  :file:`baseversion-gen.cpp`
     Provides definitions for declarations in :file:`baseversion-gen.h` for
     version info output.  The contents are generated either from Git version
     info, or from static version info if not building from a git repository.

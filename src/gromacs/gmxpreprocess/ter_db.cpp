@@ -3,7 +3,7 @@
  *
  * Copyright (c) 1991-2000, University of Groningen, The Netherlands.
  * Copyright (c) 2001-2004, The GROMACS development team.
- * Copyright (c) 2013,2014,2015,2017, by the GROMACS development team, led by
+ * Copyright (c) 2013,2014,2015,2017,2018,2019, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -38,12 +38,18 @@
 
 #include "ter_db.h"
 
-#include <ctype.h>
-#include <string.h>
+#include <cctype>
+#include <cstring>
+
+#include <string>
+#include <vector>
 
 #include "gromacs/fileio/gmxfio.h"
 #include "gromacs/gmxpreprocess/fflibutil.h"
+#include "gromacs/gmxpreprocess/gpp_atomtype.h"
+#include "gromacs/gmxpreprocess/grompp-impl.h"
 #include "gromacs/gmxpreprocess/h_db.h"
+#include "gromacs/gmxpreprocess/hackblock.h"
 #include "gromacs/gmxpreprocess/notset.h"
 #include "gromacs/gmxpreprocess/resall.h"
 #include "gromacs/gmxpreprocess/toputil.h"
@@ -54,15 +60,15 @@
 #include "gromacs/utility/strdb.h"
 
 /* use bonded types definitions in hackblock.h */
-#define ekwRepl ebtsNR+1
-#define ekwAdd  ebtsNR+2
-#define ekwDel  ebtsNR+3
+#define ekwRepl (ebtsNR+1)
+#define ekwAdd  (ebtsNR+2)
+#define ekwDel  (ebtsNR+3)
 #define ekwNR   3
-const char *kw_names[ekwNR] = {
+static const char *kw_names[ekwNR] = {
     "replace", "add", "delete"
 };
 
-int find_kw(char *keyw)
+static int find_kw(char *keyw)
 {
     int i;
 
@@ -86,8 +92,8 @@ int find_kw(char *keyw)
 
 #define FATAL() gmx_fatal(FARGS, "Reading Termini Database: not enough items on line\n%s", line)
 
-static void read_atom(char *line, gmx_bool bAdd,
-                      char **nname, t_atom *a, gpp_atomtype_t atype, int *cgnr)
+static void read_atom(char *line, bool bAdd,
+                      char **nname, t_atom *a, gpp_atomtype *atype, int *cgnr)
 {
     int    nr, i;
     char   buf[5][30];
@@ -140,14 +146,14 @@ static void read_atom(char *line, gmx_bool bAdd,
     }
 }
 
-static void print_atom(FILE *out, t_atom *a, gpp_atomtype_t atype)
+static void print_atom(FILE *out, t_atom *a, gpp_atomtype *atype)
 {
     fprintf(out, "\t%s\t%g\t%g\n",
             get_atomtype_name(a->type, atype), a->m, a->q);
 }
 
 static void print_ter_db(const char *ff, char C, int nb, t_hackblock tb[],
-                         gpp_atomtype_t atype)
+                         gpp_atomtype *atype)
 {
     FILE *out;
     int   i, j, k, bt, nrepl, nadd, ndel;
@@ -242,9 +248,9 @@ static void print_ter_db(const char *ff, char C, int nb, t_hackblock tb[],
     gmx_fio_fclose(out);
 }
 
-static void read_ter_db_file(char *fn,
+static void read_ter_db_file(const char *fn,
                              int *ntbptr, t_hackblock **tbptr,
-                             gpp_atomtype_t atype)
+                             gpp_atomtype *atype)
 {
     char         filebase[STRLEN], *ptr;
     FILE        *in;
@@ -261,10 +267,6 @@ static void read_ter_db_file(char *fn,
     }
 
     in = fflib_open(fn);
-    if (debug)
-    {
-        fprintf(debug, "Opened %s\n", fn);
-    }
 
     tb    = *tbptr;
     nb    = *ntbptr - 1;
@@ -404,11 +406,9 @@ static void read_ter_db_file(char *fn,
 }
 
 int read_ter_db(const char *ffdir, char ter,
-                t_hackblock **tbptr, gpp_atomtype_t atype)
+                t_hackblock **tbptr, gpp_atomtype *atype)
 {
     char   ext[STRLEN];
-    int    ntdbf, f;
-    char **tdbf;
     int    ntb;
 
     sprintf(ext, ".%c.tdb", ter);
@@ -416,15 +416,13 @@ int read_ter_db(const char *ffdir, char ter,
     /* Search for termini database files.
      * Do not generate an error when none are found.
      */
-    ntdbf  = fflib_search_file_end(ffdir, ext, FALSE, &tdbf);
+    std::vector<std::string> tdbf  = fflib_search_file_end(ffdir, ext, FALSE);
     ntb    = 0;
     *tbptr = nullptr;
-    for (f = 0; f < ntdbf; f++)
+    for (const auto &filename : tdbf)
     {
-        read_ter_db_file(tdbf[f], &ntb, tbptr, atype);
-        sfree(tdbf[f]);
+        read_ter_db_file(filename.c_str(), &ntb, tbptr, atype);
     }
-    sfree(tdbf);
 
     if (debug)
     {
@@ -434,10 +432,8 @@ int read_ter_db(const char *ffdir, char ter,
     return ntb;
 }
 
-t_hackblock **filter_ter(int nrtp, t_restp rtp[],
-                         int nb, t_hackblock tb[],
+t_hackblock **filter_ter(int nb, t_hackblock tb[],
                          const char *resname,
-                         const char *rtpname,
                          int *nret)
 {
     // TODO Four years later, no force fields have ever used this, so decide status of this feature
@@ -462,14 +458,10 @@ t_hackblock **filter_ter(int nrtp, t_restp rtp[],
      * Remember to free the list when you are done with it...
      */
 
-    t_restp     *   restp;
     int             i, j, n, none_idx;
-    gmx_bool        found;
-    char           *rtpname_match, *s;
+    bool            found;
+    char           *s;
     t_hackblock   **list;
-
-    rtpname_match = search_rtp(rtpname, nrtp, rtp);
-    restp         = get_restp(rtpname_match, nrtp, rtp);
 
     n    = 0;
     list = nullptr;
@@ -480,13 +472,7 @@ t_hackblock **filter_ter(int nrtp, t_restp rtp[],
         found = FALSE;
         do
         {
-            /* The residue name should appear in a tdb file with the same base name
-             * as the file containing the rtp entry.
-             * This makes termini selection for different molecule types
-             * much cleaner.
-             */
-            if (gmx_strcasecmp(restp->filebase, tb[i].filebase) == 0 &&
-                gmx_strncasecmp(resname, s, 3) == 0)
+            if (gmx_strncasecmp(resname, s, 3) == 0)
             {
                 found = TRUE;
                 srenew(list, n+1);
@@ -516,49 +502,41 @@ t_hackblock **filter_ter(int nrtp, t_restp rtp[],
     for (i = 0; i < nb; i++)
     {
         s = tb[i].name;
-        /* The residue name should appear in a tdb file with the same base name
-         * as the file containing the rtp entry.
-         * This makes termini selection for different molecule types
-         * much cleaner.
-         */
-        if (gmx_strcasecmp(restp->filebase, tb[i].filebase) == 0)
+        if (!gmx_strcasecmp("None", s))
         {
-            if (!gmx_strcasecmp("None", s))
-            {
-                none_idx = i;
-            }
-            else
-            {
-                /* Time to see if there's a generic terminus that matches.
-                   Is there a hyphen? */
-                char *c = strchr(s, '-');
+            none_idx = i;
+        }
+        else
+        {
+            /* Time to see if there's a generic terminus that matches.
+               Is there a hyphen? */
+            char *c = strchr(s, '-');
 
-                /* A conjunction hyphen normally indicates a residue-specific
-                   terminus, which is named like "GLY-COOH". A generic terminus
-                   won't have a hyphen. */
-                bool bFoundAnyHyphen = (c != nullptr);
-                /* '-' as the last character indicates charge, so if that's
-                   the only one found e.g. "COO-", then it was not a conjunction
-                   hyphen, so this is a generic terminus */
-                bool bOnlyFoundChargeHyphen = (bFoundAnyHyphen &&
-                                               *(c+1) == '\0');
-                /* Thus, "GLY-COO-" is not recognized as a generic terminus. */
-                bool bFoundGenericTerminus = !bFoundAnyHyphen || bOnlyFoundChargeHyphen;
-                if (bFoundGenericTerminus)
+            /* A conjunction hyphen normally indicates a residue-specific
+               terminus, which is named like "GLY-COOH". A generic terminus
+               won't have a hyphen. */
+            bool bFoundAnyHyphen = (c != nullptr);
+            /* '-' as the last character indicates charge, so if that's
+               the only one found e.g. "COO-", then it was not a conjunction
+               hyphen, so this is a generic terminus */
+            bool bOnlyFoundChargeHyphen = (bFoundAnyHyphen &&
+                                           *(c+1) == '\0');
+            /* Thus, "GLY-COO-" is not recognized as a generic terminus. */
+            bool bFoundGenericTerminus = !bFoundAnyHyphen || bOnlyFoundChargeHyphen;
+            if (bFoundGenericTerminus)
+            {
+                /* Check that we haven't already added a residue-specific version
+                 * of this terminus.
+                 */
+                for (j = 0; j < n && strstr((*list[j]).name, s) == nullptr; j++)
                 {
-                    /* Check that we haven't already added a residue-specific version
-                     * of this terminus.
-                     */
-                    for (j = 0; j < n && strstr((*list[j]).name, s) == nullptr; j++)
-                    {
-                        ;
-                    }
-                    if (j == n)
-                    {
-                        srenew(list, n+1);
-                        list[n] = &(tb[i]);
-                        n++;
-                    }
+                    ;
+                }
+                if (j == n)
+                {
+                    srenew(list, n+1);
+                    list[n] = &(tb[i]);
+                    n++;
                 }
             }
         }

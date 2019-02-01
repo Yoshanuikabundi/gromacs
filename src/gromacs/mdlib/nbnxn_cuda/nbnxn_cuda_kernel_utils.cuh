@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2012,2013,2014,2016,2017, by the GROMACS development team, led by
+ * Copyright (c) 2012,2013,2014,2016,2017,2018, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -42,8 +42,6 @@
  *  \author Szilárd Páll <pall.szilard@gmail.com>
  *  \ingroup module_mdlib
  */
-#include "config.h"
-
 #include <assert.h>
 
 /* Note that floating-point constants in CUDA code should be suffixed
@@ -60,37 +58,20 @@
 #ifndef NBNXN_CUDA_KERNEL_UTILS_CUH
 #define NBNXN_CUDA_KERNEL_UTILS_CUH
 
-/* Use texture objects if supported by the target hardware. */
-#if GMX_PTX_ARCH >= 300
-/* Note: convenience macro, needs to be undef-ed at the end of the file. */
-#define USE_TEXOBJ
-#endif
-
 /*! \brief Log of the i and j cluster size.
  *  change this together with c_clSize !*/
-static const int    c_clSizeLog2  = 3;
+static const int __device__          c_clSizeLog2  = 3;
 /*! \brief Square of cluster size. */
-static const int    c_clSizeSq    = c_clSize*c_clSize;
+static const int __device__          c_clSizeSq    = c_clSize*c_clSize;
 /*! \brief j-cluster size after split (4 in the current implementation). */
-static const int    c_splitClSize = c_clSize/c_nbnxnGpuClusterpairSplit;
+static const int __device__          c_splitClSize = c_clSize/c_nbnxnGpuClusterpairSplit;
 /*! \brief Stride in the force accumualation buffer */
-static const int    c_fbufStride  = c_clSizeSq;
+static const int __device__          c_fbufStride  = c_clSizeSq;
+/*! \brief i-cluster interaction mask for a super-cluster with all c_numClPerSupercl=8 bits set */
+static const unsigned __device__     superClInteractionMask = ((1U << c_numClPerSupercl) - 1U);
 
-static const float  c_oneSixth    = 0.16666667f;
-static const float  c_oneTwelveth = 0.08333333f;
-
-/* With multiple compilation units this ensures that texture refs are available
-   in the the kernels' compilation units. */
-#if !GMX_CUDA_NB_SINGLE_COMPILATION_UNIT
-/*! Texture reference for LJ C6/C12 parameters; bound to cu_nbparam_t.nbfp */
-extern texture<float, 1, cudaReadModeElementType> nbfp_texref;
-
-/*! Texture reference for LJ-PME parameters; bound to cu_nbparam_t.nbfp_comb */
-extern texture<float, 1, cudaReadModeElementType> nbfp_comb_texref;
-
-/*! Texture reference for Ewald coulomb force table; bound to cu_nbparam_t.coulomb_tab */
-extern texture<float, 1, cudaReadModeElementType> coulomb_tab_texref;
-#endif /* GMX_CUDA_NB_SINGLE_COMPILATION_UNIT */
+static const float __device__        c_oneSixth    = 0.16666667f;
+static const float __device__        c_oneTwelveth = 0.08333333f;
 
 
 /*! Convert LJ sigma,epsilon parameters to C6,C12. */
@@ -233,17 +214,21 @@ void calculate_potential_switch_F_E(const  cu_nbparam_t nbparam,
 }
 
 
-/*! \brief Fetch C6 grid contribution coefficients and return the product of these. */
+/*! \brief Fetch C6 grid contribution coefficients and return the product of these.
+ *
+ *  Depending on what is supported, it fetches parameters either
+ *  using direct load, texture objects, or texrefs.
+ */
 static __forceinline__ __device__
 float calculate_lj_ewald_c6grid(const cu_nbparam_t nbparam,
                                 int                typei,
                                 int                typej)
 {
-#ifdef USE_TEXOBJ
-    return tex1Dfetch<float>(nbparam.nbfp_comb_texobj, 2*typei) * tex1Dfetch<float>(nbparam.nbfp_comb_texobj, 2*typej);
+#if DISABLE_CUDA_TEXTURES
+    return LDG(&nbparam.nbfp_comb[2*typei]) * LDG(&nbparam.nbfp_comb[2*typej]);
 #else
-    return tex1Dfetch(nbfp_comb_texref, 2*typei) * tex1Dfetch(nbfp_comb_texref, 2*typej);
-#endif /* USE_TEXOBJ */
+    return tex1Dfetch<float>(nbparam.nbfp_comb_texobj, 2*typei) * tex1Dfetch<float>(nbparam.nbfp_comb_texobj, 2*typej);
+#endif /* DISABLE_CUDA_TEXTURES */
 }
 
 
@@ -308,25 +293,32 @@ void calculate_lj_ewald_comb_geom_F_E(const cu_nbparam_t nbparam,
     *E_lj    += c_oneSixth*c6grid*(inv_r6_nm*(1.0f - expmcr2*poly) + sh_mask);
 }
 
-/*! Fetch per-type LJ parameters. */
+/*! Fetch per-type LJ parameters.
+ *
+ *  Depending on what is supported, it fetches parameters either
+ *  using direct load, texture objects, or texrefs.
+ */
 static __forceinline__ __device__
 float2 fetch_nbfp_comb_c6_c12(const cu_nbparam_t nbparam,
                               int                type)
 {
     float2 c6c12;
-#ifdef USE_TEXOBJ
+#if DISABLE_CUDA_TEXTURES
+    /* Force an 8-byte fetch to save a memory instruction. */
+    float2 *nbfp_comb = (float2 *)nbparam.nbfp_comb;
+    c6c12 = LDG(&nbfp_comb[type]);
+#else
+    /* NOTE: as we always do 8-byte aligned loads, we could
+       fetch float2 here too just as above. */
     c6c12.x = tex1Dfetch<float>(nbparam.nbfp_comb_texobj, 2*type);
     c6c12.y = tex1Dfetch<float>(nbparam.nbfp_comb_texobj, 2*type + 1);
-#else
-    c6c12.x = tex1Dfetch(nbfp_comb_texref, 2*type);
-    c6c12.y = tex1Dfetch(nbfp_comb_texref, 2*type + 1);
-#endif /* USE_TEXOBJ */
+#endif /* DISABLE_CUDA_TEXTURES */
 
     return c6c12;
 }
 
 
-/*! Calculate LJ-PME grid force + energy contribution (if E_lj != NULL) with
+/*! Calculate LJ-PME grid force + energy contribution (if E_lj != nullptr) with
  *  Lorentz-Berthelot combination rule.
  *  We use a single F+E kernel with conditional because the performance impact
  *  of this is pretty small and LB on the CPU is anyway very slow.
@@ -365,7 +357,7 @@ void calculate_lj_ewald_comb_LB_F_E(const cu_nbparam_t nbparam,
     /* Subtract the grid force from the total LJ force */
     *F_invr  += c6grid*(inv_r6_nm - expmcr2*(inv_r6_nm*poly + lje_coeff6_6))*inv_r2;
 
-    if (E_lj != NULL)
+    if (E_lj != nullptr)
     {
         float sh_mask;
 
@@ -378,6 +370,8 @@ void calculate_lj_ewald_comb_LB_F_E(const cu_nbparam_t nbparam,
 
 /*! Fetch two consecutive values from the Ewald correction F*r table.
  *
+ *  Depending on what is supported, it fetches parameters either
+ *  using direct load, texture objects, or texrefs.
  */
 static __forceinline__ __device__
 float2 fetch_coulomb_force_r(const cu_nbparam_t nbparam,
@@ -385,13 +379,14 @@ float2 fetch_coulomb_force_r(const cu_nbparam_t nbparam,
 {
     float2 d;
 
-#ifdef USE_TEXOBJ
+#if DISABLE_CUDA_TEXTURES
+    /* Can't do 8-byte fetch because some of the addresses will be misaligned. */
+    d.x = LDG(&nbparam.coulomb_tab[index]);
+    d.y = LDG(&nbparam.coulomb_tab[index + 1]);
+#else
     d.x = tex1Dfetch<float>(nbparam.coulomb_tab_texobj, index);
     d.y = tex1Dfetch<float>(nbparam.coulomb_tab_texobj, index + 1);
-#else
-    d.x =  tex1Dfetch(coulomb_tab_texref, index);
-    d.y =  tex1Dfetch(coulomb_tab_texref, index + 1);
-#endif // USE_TEXOBJ
+#endif // DISABLE_CUDA_TEXTURES
 
     return d;
 }
@@ -427,6 +422,8 @@ float interpolate_coulomb_force_r(const cu_nbparam_t nbparam,
 
 /*! Fetch C6 and C12 from the parameter table.
  *
+ *  Depending on what is supported, it fetches parameters either
+ *  using direct load, texture objects, or texrefs.
  */
 static __forceinline__ __device__
 void fetch_nbfp_c6_c12(float               &c6,
@@ -434,13 +431,19 @@ void fetch_nbfp_c6_c12(float               &c6,
                        const cu_nbparam_t   nbparam,
                        int                  baseIndex)
 {
-#ifdef USE_TEXOBJ
+#if DISABLE_CUDA_TEXTURES
+    /* Force an 8-byte fetch to save a memory instruction. */
+    float2 *nbfp = (float2 *)nbparam.nbfp;
+    float2  c6c12;
+    c6c12 = LDG(&nbfp[baseIndex]);
+    c6    = c6c12.x;
+    c12   = c6c12.y;
+#else
+    /* NOTE: as we always do 8-byte aligned loads, we could
+       fetch float2 here too just as above. */
     c6  = tex1Dfetch<float>(nbparam.nbfp_texobj, 2*baseIndex);
     c12 = tex1Dfetch<float>(nbparam.nbfp_texobj, 2*baseIndex + 1);
-#else
-    c6  = tex1Dfetch(nbfp_texref, 2*baseIndex);
-    c12 = tex1Dfetch(nbfp_texref, 2*baseIndex + 1);
-#endif
+#endif // DISABLE_CUDA_TEXTURES
 }
 
 
@@ -504,38 +507,37 @@ void reduce_force_j_generic(float *f_buf, float3 *fout,
 }
 
 /*! Final j-force reduction; this implementation only with power of two
- *  array sizes and with sm >= 3.0
+ *  array sizes.
  */
-#if GMX_PTX_ARCH >= 300
 static __forceinline__ __device__
 void reduce_force_j_warp_shfl(float3 f, float3 *fout,
-                              int tidxi, int aidx)
+                              int tidxi, int aidx,
+                              const unsigned int activemask)
 {
-    f.x += __shfl_down(f.x, 1);
-    f.y += __shfl_up  (f.y, 1);
-    f.z += __shfl_down(f.z, 1);
+    f.x += gmx_shfl_down_sync(activemask, f.x, 1);
+    f.y += gmx_shfl_up_sync  (activemask, f.y, 1);
+    f.z += gmx_shfl_down_sync(activemask, f.z, 1);
 
     if (tidxi & 1)
     {
         f.x = f.y;
     }
 
-    f.x += __shfl_down(f.x, 2);
-    f.z += __shfl_up  (f.z, 2);
+    f.x += gmx_shfl_down_sync(activemask, f.x, 2);
+    f.z += gmx_shfl_up_sync  (activemask, f.z, 2);
 
     if (tidxi & 2)
     {
         f.x = f.z;
     }
 
-    f.x += __shfl_down(f.x, 4);
+    f.x += gmx_shfl_down_sync(activemask, f.x, 4);
 
     if (tidxi < 3)
     {
         atomicAdd((&fout[aidx].x) + tidxi, f.x);
     }
 }
-#endif
 
 /*! Final i-force reduction; this generic implementation works with
  *  arbitrary array sizes.
@@ -630,25 +632,25 @@ void reduce_force_i(float *f_buf, float3 *f,
 }
 
 /*! Final i-force reduction; this implementation works only with power of two
- *  array sizes and with sm >= 3.0
+ *  array sizes.
  */
-#if GMX_PTX_ARCH >= 300
 static __forceinline__ __device__
 void reduce_force_i_warp_shfl(float3 fin, float3 *fout,
                               float *fshift_buf, bool bCalcFshift,
-                              int tidxj, int aidx)
+                              int tidxj, int aidx,
+                              const unsigned int activemask)
 {
-    fin.x += __shfl_down(fin.x, c_clSize);
-    fin.y += __shfl_up  (fin.y, c_clSize);
-    fin.z += __shfl_down(fin.z, c_clSize);
+    fin.x += gmx_shfl_down_sync(activemask, fin.x, c_clSize);
+    fin.y += gmx_shfl_up_sync  (activemask, fin.y, c_clSize);
+    fin.z += gmx_shfl_down_sync(activemask, fin.z, c_clSize);
 
     if (tidxj & 1)
     {
         fin.x = fin.y;
     }
 
-    fin.x += __shfl_down(fin.x, 2*c_clSize);
-    fin.z += __shfl_up  (fin.z, 2*c_clSize);
+    fin.x += gmx_shfl_down_sync(activemask, fin.x, 2*c_clSize);
+    fin.z += gmx_shfl_up_sync  (activemask, fin.z, 2*c_clSize);
 
     if (tidxj & 2)
     {
@@ -666,7 +668,6 @@ void reduce_force_i_warp_shfl(float3 fin, float3 *fout,
         }
     }
 }
-#endif
 
 /*! Energy reduction; this implementation works only with power of two
  *  array sizes.
@@ -676,14 +677,13 @@ void reduce_energy_pow2(volatile float *buf,
                         float *e_lj, float *e_el,
                         unsigned int tidx)
 {
-    int     i, j;
-    float   e1, e2;
+    float        e1, e2;
 
-    i = warp_size/2;
+    unsigned int i = warp_size/2;
 
     /* Can't just use i as loop variable because than nvcc refuses to unroll. */
 #pragma unroll 10
-    for (j = warp_size_log2 - 1; j > 0; j--)
+    for (int j = warp_size_log2 - 1; j > 0; j--)
     {
         if (tidx < i)
         {
@@ -707,13 +707,13 @@ void reduce_energy_pow2(volatile float *buf,
 }
 
 /*! Energy reduction; this implementation works only with power of two
- *  array sizes and with sm >= 3.0
+ *  array sizes.
  */
-#if GMX_PTX_ARCH >= 300
 static __forceinline__ __device__
 void reduce_energy_warp_shfl(float E_lj, float E_el,
                              float *e_lj, float *e_el,
-                             int tidx)
+                             int tidx,
+                             const unsigned int activemask)
 {
     int i, sh;
 
@@ -721,8 +721,8 @@ void reduce_energy_warp_shfl(float E_lj, float E_el,
 #pragma unroll 5
     for (i = 0; i < 5; i++)
     {
-        E_lj += __shfl_down(E_lj, sh);
-        E_el += __shfl_down(E_el, sh);
+        E_lj += gmx_shfl_down_sync(activemask, E_lj, sh);
+        E_el += gmx_shfl_down_sync(activemask, E_el, sh);
         sh   += sh;
     }
 
@@ -733,8 +733,5 @@ void reduce_energy_warp_shfl(float E_lj, float E_el,
         atomicAdd(e_el, E_el);
     }
 }
-#endif /* GMX_PTX_ARCH */
-
-#undef USE_TEXOBJ
 
 #endif /* NBNXN_CUDA_KERNEL_UTILS_CUH */

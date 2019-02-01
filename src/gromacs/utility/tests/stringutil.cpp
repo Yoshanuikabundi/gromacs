@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2012,2014,2015,2016,2017, by the GROMACS development team, led by
+ * Copyright (c) 2012,2014,2015,2016,2017,2018, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -54,6 +54,7 @@
 #include <gtest/gtest.h>
 
 #include "gromacs/utility/arrayref.h"
+#include "gromacs/utility/exceptions.h"
 
 #include "testutils/refdata.h"
 #include "testutils/stringtest.h"
@@ -197,11 +198,11 @@ TEST(formatAndJoinTest, Works)
 {
     const char * const words[] = { "The", "quick", "brown", "fox" };
     EXPECT_EQ("The       .quick     .brown     .fox       ",
-              gmx::formatAndJoin(gmx::ConstArrayRef<const char *>(words), ".",
+              gmx::formatAndJoin(gmx::ArrayRef<const char *const>(words), ".",
                                  gmx::StringFormatter("%-10s")));
 
     const int values[] = { 0, 1, 4 };
-    EXPECT_EQ("0,1,4", gmx::formatAndJoin(gmx::ConstArrayRef<int>(values), ",",
+    EXPECT_EQ("0,1,4", gmx::formatAndJoin(gmx::ArrayRef<const int>(values), ",",
                                           gmx::StringFormatter("%d")));
 }
 
@@ -212,7 +213,7 @@ TEST(formatAndJoinTest, Works)
 TEST(JoinStringsTest, Works)
 {
     const char * const               words[] = { "The", "quick", "brown", "fox" };
-    gmx::ConstArrayRef<const char *> refToWords(words);
+    gmx::ArrayRef<const char *const> refToWords(words);
     EXPECT_EQ("The; quick; brown; fox", gmx::joinStrings(refToWords.begin(), refToWords.end(), "; "));
     EXPECT_EQ("The-quick-brown-fox", gmx::joinStrings(refToWords, "-"));
     EXPECT_EQ("The-quick-brown-fox", gmx::joinStrings(words, "-"));
@@ -431,5 +432,5 @@ TEST_F(TextLineWrapperTest, WrapsCorrectlyWithExtraWhitespace)
 }
 
 } // namespace
-} // namespace
-} // namespace
+} // namespace test
+} // namespace gmx

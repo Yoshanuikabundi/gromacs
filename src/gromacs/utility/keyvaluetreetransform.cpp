@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2016,2017, by the GROMACS development team, led by
+ * Copyright (c) 2016,2017,2018,2019, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -42,6 +42,7 @@
 #include <typeindex>
 #include <vector>
 
+#include "gromacs/compat/make_unique.h"
 #include "gromacs/utility/exceptions.h"
 #include "gromacs/utility/ikeyvaluetreeerror.h"
 #include "gromacs/utility/keyvaluetreebuilder.h"
@@ -57,6 +58,60 @@ namespace gmx
 
 IKeyValueTreeTransformRules::~IKeyValueTreeTransformRules()
 {
+}
+
+/********************************************************************
+ * KeyValueTreeTransformRulesScoped::Impl
+ */
+
+class KeyValueTreeTransformRulesScoped::Impl : public IKeyValueTreeTransformRules
+{
+    public:
+        Impl(internal::KeyValueTreeTransformerImpl *impl, const KeyValueTreePath &prefix)
+            : impl_(impl), prefix_(prefix)
+        {
+        }
+
+        KeyValueTreeTransformRuleBuilder addRule() override
+        {
+            return KeyValueTreeTransformRuleBuilder(impl_, prefix_);
+        }
+
+        KeyValueTreeTransformRulesScoped
+        scopedTransform(const KeyValueTreePath &scope) override
+        {
+            return KeyValueTreeTransformRulesScoped(impl_, prefix_ + scope);
+        }
+
+    private:
+        internal::KeyValueTreeTransformerImpl *impl_;
+        KeyValueTreePath                       prefix_;
+};
+
+/********************************************************************
+ * KeyValueTreeTransformRulesScoped
+ */
+
+KeyValueTreeTransformRulesScoped::KeyValueTreeTransformRulesScoped(
+        internal::KeyValueTreeTransformerImpl *impl, const KeyValueTreePath &prefix)
+    : impl_(new Impl(impl, prefix))
+{
+}
+
+KeyValueTreeTransformRulesScoped::KeyValueTreeTransformRulesScoped(
+        KeyValueTreeTransformRulesScoped &&) noexcept = default;
+
+KeyValueTreeTransformRulesScoped &
+KeyValueTreeTransformRulesScoped::operator=(
+        KeyValueTreeTransformRulesScoped &&) noexcept = default;
+
+KeyValueTreeTransformRulesScoped::~KeyValueTreeTransformRulesScoped()
+{
+}
+
+IKeyValueTreeTransformRules *KeyValueTreeTransformRulesScoped::rules()
+{
+    return impl_.get();
 }
 
 /********************************************************************
@@ -113,8 +168,8 @@ class KeyValueTreeBackMapping : public IKeyValueTreeBackMapping
                 std::map<std::string, Entry> childEntries_;
         };
 
-        virtual KeyValueTreePath
-        originalPath(const KeyValueTreePath &path) const
+        KeyValueTreePath
+        originalPath(const KeyValueTreePath &path) const override
         {
             const Entry *entry = &rootEntry_;
             for (const auto &element : path.elements())
@@ -147,7 +202,7 @@ namespace internal
  * KeyValueTreeTransformerImpl
  */
 
-class KeyValueTreeTransformerImpl : public IKeyValueTreeTransformRules
+class KeyValueTreeTransformerImpl
 {
     public:
         class Rule
@@ -253,9 +308,9 @@ class KeyValueTreeTransformerImpl : public IKeyValueTreeTransformRules
                 KeyValueTreePath                         context_;
         };
 
-        virtual KeyValueTreeTransformRuleBuilder addRule()
+        KeyValueTreeTransformerImpl()
+            : rootScope_(this, KeyValueTreePath())
         {
-            return KeyValueTreeTransformRuleBuilder(this);
         }
 
         Rule *getOrCreateRootRule()
@@ -270,10 +325,11 @@ class KeyValueTreeTransformerImpl : public IKeyValueTreeTransformRules
         {
             GMX_RELEASE_ASSERT(rootRule_ == nullptr,
                                "Cannot specify key match type after child rules");
-            rootRule_.reset(new Rule(keyMatchType));
+            rootRule_ = compat::make_unique<Rule>(keyMatchType);
         }
 
-        std::unique_ptr<Rule>  rootRule_;
+        std::unique_ptr<Rule>             rootRule_;
+        KeyValueTreeTransformRulesScoped  rootScope_;
 };
 
 /********************************************************************
@@ -382,7 +438,7 @@ KeyValueTreeTransformer::~KeyValueTreeTransformer()
 
 IKeyValueTreeTransformRules *KeyValueTreeTransformer::rules()
 {
-    return impl_.get();
+    return impl_->rootScope_.rules();
 }
 
 std::vector<KeyValueTreePath> KeyValueTreeTransformer::mappedPaths() const
@@ -413,8 +469,8 @@ class KeyValueTreeTransformRuleBuilder::Data
     public:
         typedef internal::KeyValueTreeTransformerImpl::Rule Rule;
 
-        Data()
-            : expectedType_(typeid(void)),
+        explicit Data(const KeyValueTreePath &prefix)
+            : prefixPath_(prefix), expectedType_(typeid(void)),
               keyMatchType_(StringCompareType::Exact), keyMatchRule_(false)
         {
         }
@@ -461,6 +517,7 @@ class KeyValueTreeTransformRuleBuilder::Data
             }
         }
 
+        const KeyValueTreePath   prefixPath_;
         KeyValueTreePath         fromPath_;
         KeyValueTreePath         toPath_;
         std::type_index          expectedType_;
@@ -474,8 +531,8 @@ class KeyValueTreeTransformRuleBuilder::Data
  */
 
 KeyValueTreeTransformRuleBuilder::KeyValueTreeTransformRuleBuilder(
-        internal::KeyValueTreeTransformerImpl *impl)
-    : impl_(impl), data_(new Data)
+        internal::KeyValueTreeTransformerImpl *impl, const KeyValueTreePath &prefix)
+    : impl_(impl), data_(new Data(prefix))
 {
 }
 
@@ -499,7 +556,7 @@ void KeyValueTreeTransformRuleBuilder::setExpectedType(const std::type_index &ty
 
 void KeyValueTreeTransformRuleBuilder::setToPath(const KeyValueTreePath &path)
 {
-    data_->toPath_ = path;
+    data_->toPath_ = data_->prefixPath_ + path;
 }
 
 void KeyValueTreeTransformRuleBuilder::setKeyMatchType(StringCompareType keyMatchType)
@@ -508,24 +565,24 @@ void KeyValueTreeTransformRuleBuilder::setKeyMatchType(StringCompareType keyMatc
     data_->keyMatchRule_ = true;
 }
 
-void KeyValueTreeTransformRuleBuilder::addTransformToVariant(
-        std::function<Variant(const Variant &)> transform)
+void KeyValueTreeTransformRuleBuilder::addTransformToAny(
+        const std::function<Any(const Any &)> &transform)
 {
     data_->transform_ =
         [transform] (KeyValueTreeValueBuilder *builder, const KeyValueTreeValue &value)
         {
-            builder->setVariantValue(transform(value.asVariant()));
+            builder->setAnyValue(transform(value.asAny()));
         };
 }
 
 void KeyValueTreeTransformRuleBuilder::addTransformToObject(
-        std::function<void(KeyValueTreeObjectBuilder *, const Variant &)> transform)
+        const std::function<void(KeyValueTreeObjectBuilder *, const Any &)> &transform)
 {
     data_->transform_ =
         [transform] (KeyValueTreeValueBuilder *builder, const KeyValueTreeValue &value)
         {
             KeyValueTreeObjectBuilder obj = builder->createObject();
-            transform(&obj, value.asVariant());
+            transform(&obj, value.asAny());
         };
 }
 

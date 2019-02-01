@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2009,2010,2012,2013,2014,2015,2016,2017, by the GROMACS development team, led by
+ * Copyright (c) 2009,2010,2012,2013,2014,2015,2016,2017,2018,2019, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -37,6 +37,9 @@
 #include "vmdio.h"
 
 #include "config.h"
+
+#include "gromacs/utility/path.h"
+#include "gromacs/utility/stringutil.h"
 
 /* Derived from PluginMgr.C and catdcd.c */
 
@@ -86,10 +89,10 @@
 /*                                                                           */
 /*****************************************************************************/
 
-#include <assert.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <cassert>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 /*
  * Plugin header files; get plugin source from www.ks.uiuc.edu/Research/vmd"
@@ -116,9 +119,9 @@
 #include "gromacs/utility/smalloc.h"
 
 
-typedef int (*initfunc)(void);
+typedef int (*initfunc)();
 typedef int (*regfunc)(void *, vmdplugin_register_cb);
-typedef int (*finifunc)(void);
+typedef int (*finifunc)();
 
 
 
@@ -129,7 +132,7 @@ static int register_cb(void *v, vmdplugin_t *p)
 
     if (strcmp(key, vmdplugin->filetype) == 0)
     {
-        vmdplugin->api = (molfile_plugin_t *)p;
+        vmdplugin->api = reinterpret_cast<molfile_plugin_t *>(p);
     }
     return VMDPLUGIN_SUCCESS;
 }
@@ -149,7 +152,7 @@ static int load_sharedlibrary_plugins(const char *fullpath, gmx_vmdplugin_t *vmd
     }
 
     ifunc = vmddlsym(handle, "vmdplugin_init");
-    if (!ifunc || ((initfunc)(ifunc))())
+    if (!ifunc || (reinterpret_cast<initfunc>(ifunc))())
     {
         printf("\nvmdplugin_init() for %s returned an error; plugin(s) not loaded.\n", fullpath);
         vmddlclose(handle);
@@ -166,7 +169,7 @@ static int load_sharedlibrary_plugins(const char *fullpath, gmx_vmdplugin_t *vmd
     else
     {
         /* Load plugins from the library.*/
-        ((regfunc)registerfunc)(vmdplugin, register_cb);
+        (reinterpret_cast<regfunc>(registerfunc))(vmdplugin, register_cb);
     }
 
     /* in case this library does not support the filetype, close it */
@@ -195,10 +198,10 @@ gmx_bool read_next_vmd_frame(gmx_vmdplugin_t *vmdplugin, t_trxframe *fr)
         snew(ts.velocities, fr->natoms*3);
     }
 #else
-    ts.coords = (float*)fr->x;
+    ts.coords = reinterpret_cast<float*>(fr->x);
     if (fr->bV)
     {
-        ts.velocities = (float*)fr->v;
+        ts.velocities = reinterpret_cast<float*>(fr->v);
     }
 #endif
 
@@ -211,7 +214,7 @@ gmx_bool read_next_vmd_frame(gmx_vmdplugin_t *vmdplugin, t_trxframe *fr)
     if (rc < 0)
     {
         vmdplugin->api->close_file_read(vmdplugin->handle);
-        return 0;
+        return false;
     }
 
 #if GMX_DOUBLE
@@ -243,8 +246,8 @@ gmx_bool read_next_vmd_frame(gmx_vmdplugin_t *vmdplugin, t_trxframe *fr)
     }
 #endif
 
-    fr->bX   = 1;
-    fr->bBox = 1;
+    fr->bX   = true;
+    fr->bBox = true;
     vec[0]   = .1*ts.A; vec[1] = .1*ts.B; vec[2] = .1*ts.C;
     angle[0] = ts.alpha; angle[1] = ts.beta; angle[2] = ts.gamma;
     matrix_convert(fr->box, vec, angle);
@@ -259,28 +262,24 @@ gmx_bool read_next_vmd_frame(gmx_vmdplugin_t *vmdplugin, t_trxframe *fr)
     }
 
 
-    return 1;
+    return true;
 }
 
 static int load_vmd_library(const char *fn, gmx_vmdplugin_t *vmdplugin)
 {
-    char            pathname[GMX_PATH_MAX];
-    const char     *pathenv;
-    const char     *err;
-    int             ret = 0;
-    char            pathenv_buffer[GMX_PATH_MAX];
+    const char       *err;
+    int               ret = 0;
 #if !GMX_NATIVE_WINDOWS
-    glob_t          globbuf;
-    const char     *defpath_suffix = "/plugins/*/molfile";
-    const char     *defpathenv     = GMX_VMD_PLUGIN_PATH;
+    glob_t            globbuf;
+    const std::string defpath_suffix = "/plugins/*/molfile";
+    const std::string defpathenv     = GMX_VMD_PLUGIN_PATH;
 #else
-    WIN32_FIND_DATA ffd;
-    HANDLE          hFind = INVALID_HANDLE_VALUE;
-    char            progfolder[GMX_PATH_MAX];
-    char            defpathenv[GMX_PATH_MAX];
-    const char     *defpath_suffix = "\\plugins\\WIN32\\molfile";
+    WIN32_FIND_DATA   ffd;
+    HANDLE            hFind = INVALID_HANDLE_VALUE;
+    char              progfolder[GMX_PATH_MAX];
+    std::string       defpath_suffix = "\\plugins\\WIN32\\molfile";
     SHGetFolderPath(NULL, CSIDL_PROGRAM_FILES, NULL, SHGFP_TYPE_CURRENT, progfolder);
-    sprintf(defpathenv, "%s\\University of Illinois\\VMD\\plugins\\WIN32\\molfile", progfolder);
+    std::string       defpathenv = gmx::formatString("%s\\University of Illinois\\VMD\\plugins\\WIN32\\molfile", progfolder);
 #endif
 
     vmdplugin->api      = nullptr;
@@ -295,32 +294,26 @@ static int load_vmd_library(const char *fn, gmx_vmdplugin_t *vmdplugin)
      * plugins, then an implicit run-time path, and finally for one
      * given at configure time. This last might be hard-coded to the
      * default for VMD installs. */
-    pathenv = getenv("VMD_PLUGIN_PATH");
-    if (pathenv == nullptr)
+    std::string pathenv = getenv("VMD_PLUGIN_PATH");
+    if (pathenv.empty())
     {
         pathenv = getenv("VMDDIR");
-        if (nullptr == pathenv)
+        if (pathenv.empty())
         {
             printf("\nNeither VMD_PLUGIN_PATH or VMDDIR set. ");
-            printf("Using default location:\n%s\n", defpathenv);
+            printf("Using default location:\n%s\n", defpathenv.c_str());
             pathenv = defpathenv;
         }
         else
         {
             printf("\nVMD_PLUGIN_PATH no set, but VMDDIR is set. ");
-#ifdef _MSC_VER
-            _snprintf_s(pathenv_buffer, sizeof(pathenv_buffer), _TRUNCATE, "%s%s", pathenv, defpath_suffix);
-#else
-            snprintf(pathenv_buffer, sizeof(pathenv_buffer), "%s%s", pathenv, defpath_suffix);
-#endif
-            printf("Using semi-default location:\n%s\n", pathenv_buffer);
-            pathenv = pathenv_buffer;
+            pathenv = gmx::Path::join(pathenv, defpath_suffix);
+            printf("Using semi-default location:\n%s\n", pathenv.c_str());
         }
     }
-    strncpy(pathname, pathenv, sizeof(pathname));
 #if !GMX_NATIVE_WINDOWS
-    strcat(pathname, "/*.so");
-    glob(pathname, 0, nullptr, &globbuf);
+    std::string pathname = gmx::Path::join (pathenv, "/*.so");
+    glob(pathname.c_str(), 0, nullptr, &globbuf);
     if (globbuf.gl_pathc == 0)
     {
         printf("\nNo VMD Plugins found\n"
@@ -340,8 +333,8 @@ static int load_vmd_library(const char *fn, gmx_vmdplugin_t *vmdplugin)
     }
     globfree(&globbuf);
 #else
-    strcat(pathname, "\\*.so");
-    hFind = FindFirstFile(pathname, &ffd);
+    std::string pathname = gmx::Path::join(pathenv, "\\*.so");
+    hFind = FindFirstFile(pathname.c_str(), &ffd);
     if (INVALID_HANDLE_VALUE == hFind)
     {
         printf("\nNo VMD Plugins found\n");
@@ -349,9 +342,8 @@ static int load_vmd_library(const char *fn, gmx_vmdplugin_t *vmdplugin)
     }
     do
     {
-        char filename[GMX_PATH_MAX];
-        sprintf(filename, "%s\\%s", pathenv, ffd.cFileName);
-        ret |= load_sharedlibrary_plugins(filename, vmdplugin);
+        std::string filename = gmx::Path::join(pathenv, ffd.cFileName);
+        ret |= load_sharedlibrary_plugins(filename.c_str(), vmdplugin);
     }
     while (FindNextFile(hFind, &ffd )  != 0 && vmdplugin->api == NULL);
     FindClose(hFind);
@@ -430,12 +422,12 @@ int read_first_vmd_frame(const char *fn, gmx_vmdplugin_t **vmdpluginp, t_trxfram
 
     snew(fr->x, fr->natoms);
 
-    vmdplugin->bV = 0;
+    vmdplugin->bV = false;
     if (vmdplugin->api->abiversion > 10 && vmdplugin->api->read_timestep_metadata)
     {
         vmdplugin->api->read_timestep_metadata(vmdplugin->handle, metadata);
         assert(metadata);
-        vmdplugin->bV = metadata->has_velocities;
+        vmdplugin->bV = (metadata->has_velocities != 0);
         if (vmdplugin->bV)
         {
             snew(fr->v, fr->natoms);

@@ -1,7 +1,7 @@
 #
 # This file is part of the GROMACS molecular simulation package.
 #
-# Copyright (c) 2015, by the GROMACS development team, led by
+# Copyright (c) 2015,2018, by the GROMACS development team, led by
 # Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
 # and including many others, as listed in the AUTHORS file in the
 # top-level source directory and at http://www.gromacs.org.
@@ -44,13 +44,25 @@ mark_as_advanced(SPHINX_EXECUTABLE)
 if (SPHINX_EXECUTABLE AND NOT DEFINED SPHINX_EXECUTABLE_VERSION)
     execute_process(
         COMMAND ${SPHINX_EXECUTABLE} --version
+        ERROR_VARIABLE  SPHINX_VERSION_OUTPUT_VARIABLE
         OUTPUT_VARIABLE SPHINX_VERSION_OUTPUT_VARIABLE
         RESULT_VARIABLE SPHINX_VERSION_RESULT_VARIABLE
         ERROR_QUIET
         OUTPUT_STRIP_TRAILING_WHITESPACE
         )
-    string(REGEX REPLACE "Sphinx \\([^)]*\\) ([^ ]+)" "\\1" SPHINX_EXECUTABLE_VERSION "${SPHINX_VERSION_OUTPUT_VARIABLE}")
-    set(SPHINX_EXECUTABLE_VERSION "${SPHINX_EXECUTABLE_VERSION}" CACHE INTERNAL "Version of ${SPHINX_EXECUTABLE}")
+
+    # Detect the sphinx version. First try to match the error message
+    # from old versions that didn't even support --version, then try
+    # to detect more modern sphinx versions. If nothing is found, then
+    # the cache variable is set to an empty value.
+    set(_version "")
+    if(SPHINX_VERSION_OUTPUT_VARIABLE MATCHES "Sphinx v([0-9\.]+)\n.*")
+        set(_version ${CMAKE_MATCH_1})
+    elseif (SPHINX_VERSION_OUTPUT_VARIABLE MATCHES ".*build[ )]*(.*)")
+        set(_version ${CMAKE_MATCH_1})
+    endif()
+
+    set(SPHINX_EXECUTABLE_VERSION ${_version} CACHE INTERNAL "Version of ${SPHINX_EXECUTABLE}")
 endif()
 
 set(_find_deps_options)

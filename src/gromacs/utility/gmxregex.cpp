@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2012,2014,2015,2017, by the GROMACS development team, led by
+ * Copyright (c) 2012,2014,2015,2017,2018,2019, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -43,15 +43,7 @@
 
 #include "gmxregex.h"
 
-#include "config.h"
-
-#if HAVE_POSIX_REGEX
-#    include <sys/types.h>
-// old Mac needs sys/types.h before regex.h
-#    include <regex.h>
-#elif HAVE_CXX11_REGEX
-#    include <regex>
-#endif
+#include <regex>
 
 #include "gromacs/utility/exceptions.h"
 #include "gromacs/utility/stringutil.h"
@@ -59,59 +51,6 @@
 namespace gmx
 {
 
-// static
-bool Regex::isSupported()
-{
-#if HAVE_POSIX_REGEX || HAVE_CXX11_REGEX
-    return true;
-#else
-    return false;
-#endif
-}
-
-#if HAVE_POSIX_REGEX
-class Regex::Impl
-{
-    public:
-        explicit Impl(const char *value)
-        {
-            compile(value);
-        }
-        explicit Impl(const std::string &value)
-        {
-            compile(value.c_str());
-        }
-        ~Impl()
-        {
-            regfree(&regex_);
-        }
-
-        bool match(const char *value) const
-        {
-            int rc = regexec(&regex_, value, 0, nullptr, 0);
-            if (rc != 0 && rc != REG_NOMATCH)
-            {
-                // TODO: Handle errors.
-            }
-            return (rc == 0);
-        }
-
-    private:
-        void compile(const char *value)
-        {
-            std::string buf(formatString("^%s$", value));
-            int         rc = regcomp(&regex_, buf.c_str(), REG_EXTENDED | REG_NOSUB);
-            if (rc != 0)
-            {
-                // TODO: Better error messages.
-                GMX_THROW(InvalidInputError(formatString(
-                                                    "Error in regular expression \"%s\"", value)));
-            }
-        }
-
-        regex_t                 regex_;
-};
-#elif HAVE_CXX11_REGEX
 class Regex::Impl
 {
     public:
@@ -133,7 +72,7 @@ class Regex::Impl
         {
             // TODO: Better error messages.
             GMX_THROW(InvalidInputError(formatString(
-                                                "Error in regular expression \"%s\"", value)));
+                                                "Error in regular expression \"%s\"", value.c_str())));
         }
 
         bool match(const char *value) const
@@ -152,29 +91,6 @@ class Regex::Impl
     private:
         std::regex              regex_;
 };
-#else
-class Regex::Impl
-{
-    public:
-        explicit Impl(const char * /*value*/)
-        {
-            GMX_THROW(NotImplementedError(
-                              "GROMACS is compiled without regular expression support"));
-        }
-        explicit Impl(const std::string & /*value*/)
-        {
-            GMX_THROW(NotImplementedError(
-                              "GROMACS is compiled without regular expression support"));
-        }
-
-        bool match(const char * /*value*/) const
-        {
-            // Should never be reached.
-            GMX_THROW(NotImplementedError(
-                              "GROMACS is compiled without regular expression support"));
-        }
-};
-#endif
 
 Regex::Regex()
     : impl_(nullptr)

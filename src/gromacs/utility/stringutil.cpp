@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2011,2012,2013,2014,2015,2016,2017, by the GROMACS development team, led by
+ * Copyright (c) 2011,2012,2013,2014,2015,2016,2017,2018,2019, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -49,9 +49,11 @@
 #include <cstring>
 
 #include <algorithm>
+#include <sstream>
 #include <string>
 #include <vector>
 
+#include "gromacs/utility/exceptions.h"
 #include "gromacs/utility/gmxassert.h"
 
 namespace gmx
@@ -124,14 +126,14 @@ std::string stripString(const std::string &str)
     {
         ++start;
     }
-    while (start != end && std::isspace(*(end - 1)))
+    while (start != end && (std::isspace(*(end - 1)) != 0))
     {
         --end;
     }
     return std::string(start, end);
 }
 
-std::string formatString(const char *fmt, ...)
+std::string formatString(gmx_fmtstr const char *fmt, ...)
 {
     va_list     ap;
     va_start(ap, fmt);
@@ -150,7 +152,7 @@ std::string formatStringV(const char *fmt, va_list ap)
 
     // TODO: There may be a better way of doing this on Windows, Microsoft
     // provides their own way of doing things...
-    while (1)
+    while (true)
     {
         va_copy(ap_copy, ap);
         int n = vsnprintf(buf, length, fmt, ap_copy);
@@ -237,7 +239,7 @@ namespace
  */
 bool isWordChar(char c)
 {
-    return std::isalnum(c) || c == '-' || c == '_';
+    return (std::isalnum(c) != 0) || c == '-' || c == '_';
 }
 
 /*! \brief
@@ -312,6 +314,13 @@ replaceAllWords(const std::string &input, const std::string &from,
     return replaceInternal(input, from.c_str(), to.c_str(), true);
 }
 
+bool equalCaseInsensitive(const std::string &source, const std::string &target)
+{
+    return source.length() == target.length() &&
+           std::equal(source.begin(), source.end(), target.begin(),
+                      [](const char &s, const char &t)
+                      { return std::tolower(s) == std::tolower(t); });
+}
 
 /********************************************************************
  * TextLineWrapperSettings

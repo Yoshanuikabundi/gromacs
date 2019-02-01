@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2012,2013,2014,2015,2017, by the GROMACS development team, led by
+ * Copyright (c) 2012,2013,2014,2015,2017,2018,2019, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -33,8 +33,10 @@
  * the research papers on the package. Check out http://www.gromacs.org.
  */
 
-#define UNROLLI    NBNXN_CPU_CLUSTER_I_SIZE
-#define UNROLLJ    NBNXN_CPU_CLUSTER_I_SIZE
+#define UNROLLI    4
+#define UNROLLJ    4
+
+static_assert(UNROLLI == c_nbnxnCpuIClusterSize, "UNROLLI should match the i-cluster size");
 
 /* We could use nbat->xstride and nbat->fstride, but macros might be faster */
 #define X_STRIDE   3
@@ -79,27 +81,24 @@
 #error "No VdW type defined"
 #endif
 
-static void
+void
 #ifndef CALC_ENERGIES
-NBK_FUNC_NAME(_F)
+NBK_FUNC_NAME(_F)     // NOLINT(misc-definitions-in-headers)
 #else
 #ifndef ENERGY_GROUPS
-NBK_FUNC_NAME(_VF)
+NBK_FUNC_NAME(_VF)    // NOLINT(misc-definitions-in-headers)
 #else
-NBK_FUNC_NAME(_VgrpF)
+NBK_FUNC_NAME(_VgrpF) // NOLINT(misc-definitions-in-headers)
 #endif
 #endif
 #undef NBK_FUNC_NAME
 #undef NBK_FUNC_NAME2
-(const nbnxn_pairlist_t     *nbl,
+(const NbnxnPairlistCpu     *nbl,
  const nbnxn_atomdata_t     *nbat,
  const interaction_const_t  *ic,
  rvec                       *shift_vec,
- real                       *f
-#ifdef CALC_SHIFTFORCES
- ,
- real                       *fshift
-#endif
+ real                       *f,
+ real gmx_unused            *fshift
 #ifdef CALC_ENERGIES
  ,
  real                       *Vvdw,
@@ -107,20 +106,14 @@ NBK_FUNC_NAME(_VgrpF)
 #endif
 )
 {
-    const nbnxn_ci_t   *nbln;
     const nbnxn_cj_t   *l_cj;
-    const int          *type;
-    const real         *q;
-    const real         *shiftvec;
-    const real         *x;
-    const real         *nbfp;
     real                rcut2;
 #ifdef VDW_CUTOFF_CHECK
     real                rvdw2;
 #endif
     int                 ntype2;
     real                facel;
-    int                 n, ci, ci_sh;
+    int                 ci, ci_sh;
     int                 ish, ishf;
     gmx_bool            do_LJ, half_LJ, do_coul;
     int                 cjind0, cjind1, cjind;
@@ -147,7 +140,6 @@ NBK_FUNC_NAME(_VgrpF)
 #ifdef CALC_ENERGIES
     real        lje_vc;
 #endif
-    const real *ljc;
 #endif
 
 #ifdef CALC_COUL_RF
@@ -181,6 +173,8 @@ NBK_FUNC_NAME(_VgrpF)
     swF4 = 5*ic->vdw_switch.c5;
 #endif
 
+    const nbnxn_atomdata_t::Params &nbatParams = nbat->params();
+
 #ifdef LJ_EWALD
     lje_coeff2   = ic->ewaldcoeff_lj*ic->ewaldcoeff_lj;
     lje_coeff6_6 = lje_coeff2*lje_coeff2*lje_coeff2/6.0;
@@ -188,7 +182,7 @@ NBK_FUNC_NAME(_VgrpF)
     lje_vc       = ic->sh_lj_ewald;
 #endif
 
-    ljc          = nbat->nbfp_comb;
+    const real *ljc = nbatParams.nbfp_comb.data();
 #endif
 
 #ifdef CALC_COUL_RF
@@ -212,38 +206,36 @@ NBK_FUNC_NAME(_VgrpF)
 #endif
 
 #ifdef ENERGY_GROUPS
-    egp_mask = (1<<nbat->neg_2log) - 1;
+    egp_mask = (1 << nbatParams.neg_2log) - 1;
 #endif
 
 
-    rcut2               = ic->rcoulomb*ic->rcoulomb;
+    rcut2                = ic->rcoulomb*ic->rcoulomb;
 #ifdef VDW_CUTOFF_CHECK
-    rvdw2               = ic->rvdw*ic->rvdw;
+    rvdw2                = ic->rvdw*ic->rvdw;
 #endif
 
-    ntype2              = nbat->ntype*2;
-    nbfp                = nbat->nbfp;
-    q                   = nbat->q;
-    type                = nbat->type;
-    facel               = ic->epsfac;
-    shiftvec            = shift_vec[0];
-    x                   = nbat->x;
+    ntype2               = nbatParams.numTypes*2;
+    const real *nbfp     = nbatParams.nbfp.data();
+    const real *q        = nbatParams.q.data();
+    const int  *type     = nbatParams.type.data();
+    facel                = ic->epsfac;
+    const real *shiftvec = shift_vec[0];
+    const real *x        = nbat->x().data();
 
-    l_cj = nbl->cj;
+    l_cj = nbl->cj.data();
 
-    for (n = 0; n < nbl->nci; n++)
+    for (const nbnxn_ci_t &ciEntry : nbl->ci)
     {
         int i, d;
 
-        nbln = &nbl->ci[n];
-
-        ish              = (nbln->shift & NBNXN_CI_SHIFT);
+        ish              = (ciEntry.shift & NBNXN_CI_SHIFT);
         /* x, f and fshift are assumed to be stored with stride 3 */
         ishf             = ish*DIM;
-        cjind0           = nbln->cj_ind_start;
-        cjind1           = nbln->cj_ind_end;
+        cjind0           = ciEntry.cj_ind_start;
+        cjind1           = ciEntry.cj_ind_end;
         /* Currently only works super-cells equal to sub-cells */
-        ci               = nbln->ci;
+        ci               = ciEntry.ci;
         ci_sh            = (ish == CENTRAL ? ci : -1);
 
         /* We have 5 LJ/C combinations, but use only three inner loops,
@@ -252,9 +244,9 @@ NBK_FUNC_NAME(_VgrpF)
          * inner LJ + C      for full-LJ + C
          * inner LJ          for full-LJ + no-C / half-LJ + no-C
          */
-        do_LJ   = (nbln->shift & NBNXN_CI_DO_LJ(0));
-        do_coul = (nbln->shift & NBNXN_CI_DO_COUL(0));
-        half_LJ = ((nbln->shift & NBNXN_CI_HALF_LJ(0)) || !do_LJ) && do_coul;
+        do_LJ   = ((ciEntry.shift & NBNXN_CI_DO_LJ(0)) != 0);
+        do_coul = ((ciEntry.shift & NBNXN_CI_DO_COUL(0)) != 0);
+        half_LJ = (((ciEntry.shift & NBNXN_CI_HALF_LJ(0)) != 0) || !do_LJ) && do_coul;
 #ifdef CALC_ENERGIES
 
 #ifdef LJ_EWALD
@@ -269,7 +261,7 @@ NBK_FUNC_NAME(_VgrpF)
 #else
         for (i = 0; i < UNROLLI; i++)
         {
-            egp_sh_i[i] = ((nbat->energrp[ci]>>(i*nbat->neg_2log)) & egp_mask)*nbat->nenergrp;
+            egp_sh_i[i] = ((nbatParams.energrp[ci] >> (i*nbatParams.neg_2log)) & egp_mask)*nbatParams.nenergrp;
         }
 #endif
 #endif
@@ -301,13 +293,13 @@ NBK_FUNC_NAME(_VgrpF)
 #endif
 #endif
 
-            if (l_cj[nbln->cj_ind_start].cj == ci_sh)
+            if (l_cj[ciEntry.cj_ind_start].cj == ci_sh)
             {
                 for (i = 0; i < UNROLLI; i++)
                 {
                     int egp_ind;
 #ifdef ENERGY_GROUPS
-                    egp_ind = egp_sh_i[i] + ((nbat->energrp[ci]>>(i*nbat->neg_2log)) & egp_mask);
+                    egp_ind = egp_sh_i[i] + ((nbatParams.energrp[ci] >> (i*nbatParams.neg_2log)) & egp_mask);
 #else
                     egp_ind = 0;
 #endif
@@ -316,7 +308,7 @@ NBK_FUNC_NAME(_VgrpF)
 
 #ifdef LJ_EWALD
                     /* LJ Ewald self interaction */
-                    Vvdw[egp_ind] += 0.5*nbat->nbfp[nbat->type[ci*UNROLLI+i]*(nbat->ntype + 1)*2]/6*lje_coeff6_6;
+                    Vvdw[egp_ind] += 0.5*nbatParams.nbfp[nbatParams.type[ci*UNROLLI+i]*(nbatParams.numTypes + 1)*2]/6*lje_coeff6_6;
 #endif
                 }
             }

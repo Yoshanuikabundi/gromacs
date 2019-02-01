@@ -1,7 +1,7 @@
 #
 # This file is part of the GROMACS molecular simulation package.
 #
-# Copyright (c) 2010,2011,2012,2013,2014,2015,2016, by the GROMACS development team, led by
+# Copyright (c) 2010,2011,2012,2013,2014,2015,2016,2018,2019, by the GROMACS development team, led by
 # Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
 # and including many others, as listed in the AUTHORS file in the
 # top-level source directory and at http://www.gromacs.org.
@@ -46,17 +46,15 @@ elseif(GMX_BUILD_MDRUN_ONLY)
     add_executable(mdrun $<TARGET_OBJECTS:mdrun_objlib> mdrun_main.cpp)
     target_link_libraries(mdrun libgromacs
         ${GMX_COMMON_LIBRARIES}
-        ${GMX_EXE_LINKER_FLAGS}
-        ${GMX_STDLIB_LIBRARIES})
+        ${GMX_EXE_LINKER_FLAGS})
     set(BINARY_NAME "mdrun${GMX_BINARY_SUFFIX}")
     set_target_properties(mdrun PROPERTIES
-        OUTPUT_NAME "${BINARY_NAME}"
-        COMPILE_FLAGS "${OpenMP_C_FLAGS}")
-    install(TARGETS mdrun DESTINATION ${BIN_INSTALL_DIR} COMPONENT mdrun)
+        OUTPUT_NAME "${BINARY_NAME}")
+    install(TARGETS mdrun DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT mdrun)
     file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/gmx-completion-${BINARY_NAME}.bash
          "complete -o nospace -F _gmx_mdrun_compl ${BINARY_NAME}")
     install(FILES ${CMAKE_CURRENT_BINARY_DIR}/gmx-completion-${BINARY_NAME}.bash
-            DESTINATION ${BIN_INSTALL_DIR} COMPONENT runtime)
+            DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT runtime)
 else()
     file(GLOB GMX_MAIN_SOURCES gmx.cpp legacymodules.cpp)
     if(GMX_X11)
@@ -71,17 +69,15 @@ else()
         $<TARGET_OBJECTS:view_objlib>)
     target_link_libraries(gmx libgromacs
         ${GMX_COMMON_LIBRARIES}
-        ${GMX_EXE_LINKER_FLAGS}
-        ${GMX_STDLIB_LIBRARIES})
+        ${GMX_EXE_LINKER_FLAGS})
     if(GMX_X11)
         target_link_libraries(gmx ${X11_LIBRARIES})
     endif()
     set(BINARY_NAME "gmx${GMX_BINARY_SUFFIX}")
     set_target_properties(gmx PROPERTIES
-        OUTPUT_NAME "${BINARY_NAME}"
-        COMPILE_FLAGS "${OpenMP_C_FLAGS}")
+        OUTPUT_NAME "${BINARY_NAME}")
     install(TARGETS gmx
-            RUNTIME DESTINATION ${BIN_INSTALL_DIR})
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
     ########################
     # Completion generation
@@ -108,11 +104,11 @@ else()
     endif()
     if (SOURCE_IS_SOURCE_DISTRIBUTION OR GMX_BUILD_HELP)
         install(DIRECTORY ${COMPLETION_DIR}/
-                DESTINATION ${BIN_INSTALL_DIR} COMPONENT runtime OPTIONAL)
+                DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT runtime OPTIONAL)
         file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/gmx-completion-${BINARY_NAME}.bash
              "complete -o nospace -F _gmx_compl ${BINARY_NAME}")
         install(FILES ${CMAKE_CURRENT_BINARY_DIR}/gmx-completion-${BINARY_NAME}.bash
-                DESTINATION ${BIN_INSTALL_DIR} COMPONENT runtime)
+                DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT runtime)
     endif()
     gmx_cpack_add_generated_source_directory(completion)
 

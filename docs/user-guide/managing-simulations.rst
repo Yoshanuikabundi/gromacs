@@ -1,3 +1,5 @@
+.. _managing long simulations:
+
 Managing long simulations
 =========================
 
@@ -83,7 +85,7 @@ You should arrange to back up your simulation files frequently. Network
 file systems on clusters can be configured in more or less conservative
 ways, and this can lead :ref:`gmx mdrun` to be told that a checkpoint
 file has been written to disk when actually it is still in memory
-somewhere and vulnerable to a power failure or disk that fills or 
+somewhere and vulnerable to a power failure or disk that fills or
 fails in the meantime. The UNIX tool rsync can be a useful way to
 periodically copy your simulation output to a remote storage location,
 which works safely even while the simulation is underway. Keeping a copy
@@ -104,7 +106,7 @@ be extended, use the :ref:`gmx convert-tpr` tool to extend the run, e.g.
 The time can also be extended using the ``-until`` and ``-nsteps``
 options. Note that the original :ref:`mdp` file may have generated
 velocities, but that is a one-time operation within :ref:`gmx grompp`
-that is never performed again by any other tool. 
+that is never performed again by any other tool.
 
 Changing mdp options for a restart
 ----------------------------------
@@ -129,13 +131,9 @@ the first integration step.
 Restarts without checkpoint files
 ---------------------------------
 
-It is possible to perform an exact restart a simulation if you lack a
-checkpoint file but have a matching pair of frames in a :ref:`trr` and
-:ref:`edr` file written by :ref:`gmx mdrun`. To do this, use
-
-::
-
-   gmx convert-tpr -s old.tpr -e matching.edr -t matching.trr -o new.tpr
+It used to be possible to continue simulations without the checkpoint
+files. As this approach could be unreliable or lead to
+unphysical results, only restarts from checkpoints are permitted now.
 
 Are continuations exact?
 ------------------------
@@ -173,7 +171,7 @@ The following factors affect the reproducibility of a simulation, and thus its o
   the calculations. Since the speed estimate is not deterministic, the
   results may vary from run to run.
 * Random numbers used for instance as a seed for generating velocities
-  (in GROMACS at the preprocessing stage).
+  (in |Gromacs| at the preprocessing stage).
 * Uninitialized variables in the code (but there shouldn't be any)
 * Dynamic linking to different versions of shared libraries (e.g. for FFTs)
 * Dynamic load balancing, since particles are redistributed to
@@ -191,10 +189,10 @@ The following factors affect the reproducibility of a simulation, and thus its o
 The important question is whether it is a problem if simulations are
 not completely reproducible. The answer is yes and no. Reproducibility
 is a cornerstone of science in general, and hence it is important.
-The `Central Limit Theorem <https://en.wikipedia.org/wiki/Central_limit_theorem>`
+The `Central Limit Theorem <https://en.wikipedia.org/wiki/Central_limit_theorem>`_
 tells us that in the case of infinitely long
 simulations, all observables converge to their equilibrium
-values. Molecular simulations in GROMACS adhere to this theorem, and
+values. Molecular simulations in |Gromacs| adhere to this theorem, and
 hence, for instance, the energy of your system will converge to a
 finite value, the diffusion constant of your water molecules will
 converge to a finite value, and so on. That means all the important

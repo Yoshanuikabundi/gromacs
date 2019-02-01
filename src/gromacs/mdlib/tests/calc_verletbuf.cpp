@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2017, by the GROMACS development team, led by
+ * Copyright (c) 2017,2018, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -129,12 +129,12 @@ TEST_F(VerletBufferConstraintTest, EqualMasses)
         }
 
         // Also check sigma2 for the COM of the two atoms
-        EXPECT_EQ(sigma2_rot, sigma2_3d);
+        EXPECT_REAL_EQ_TOL(sigma2_rot, sigma2_3d, test::defaultRealTolerance());
     }
 
     GMX_RELEASE_ASSERT(numPointsBeforeMax >= 20 && numPointsAfterMax >= 20, "This test only provides full coverage when we test a sufficient number of points before and after the location of the maximum value for the exact formula.");
 }
 
-}      // namespace anonymous
+}  // namespace
 
-}      // namespace gmx
+}  // namespace gmx

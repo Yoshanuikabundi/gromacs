@@ -3,7 +3,7 @@
  *
  * Copyright (c) 1991-2000, University of Groningen, The Netherlands.
  * Copyright (c) 2001-2013, The GROMACS development team.
- * Copyright (c) 2013,2014,2015,2016,2017, by the GROMACS development team, led by
+ * Copyright (c) 2013,2014,2015,2016,2017,2018,2019, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -36,6 +36,8 @@
  */
 #include "gmxpre.h"
 
+#include "check.h"
+
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -61,6 +63,7 @@
 #include "gromacs/topology/index.h"
 #include "gromacs/topology/mtop_util.h"
 #include "gromacs/topology/topology.h"
+#include "gromacs/trajectory/energyframe.h"
 #include "gromacs/trajectory/trajectoryframe.h"
 #include "gromacs/utility/arraysize.h"
 #include "gromacs/utility/fatalerror.h"
@@ -94,7 +97,6 @@ static void comp_tpx(const char *fn1, const char *fn2,
     t_inputrec    *ir[2];
     t_state        state[2];
     gmx_mtop_t     mtop[2];
-    t_topology     top[2];
     int            i;
 
     ff[0] = fn1;
@@ -108,15 +110,7 @@ static void comp_tpx(const char *fn1, const char *fn2,
     if (fn2)
     {
         cmp_inputrec(stdout, ir[0], ir[1], ftol, abstol);
-        /* Convert gmx_mtop_t to t_topology.
-         * We should implement direct mtop comparison,
-         * but it might be useful to keep t_topology comparison as an option.
-         */
-        top[0] = gmx_mtop_t_to_t_topology(&mtop[0], false);
-        top[1] = gmx_mtop_t_to_t_topology(&mtop[1], false);
-        cmp_top(stdout, &top[0], &top[1], ftol, abstol);
-        cmp_groups(stdout, &mtop[0].groups, &mtop[1].groups,
-                   mtop[0].natoms, mtop[1].natoms);
+        compareMtop(stdout, mtop[0], mtop[1], ftol, abstol);
         comp_state(&state[0], &state[1], bRMSD, ftol, abstol);
     }
     else
@@ -131,12 +125,7 @@ static void comp_tpx(const char *fn1, const char *fn2,
             {
                 comp_pull_AB(stdout, ir[0]->pull, ftol, abstol);
             }
-            /* Convert gmx_mtop_t to t_topology.
-             * We should implement direct mtop comparison,
-             * but it might be useful to keep t_topology comparison as an option.
-             */
-            top[0] = gmx_mtop_t_to_t_topology(&mtop[0], true);
-            cmp_top(stdout, &top[0], nullptr, ftol, abstol);
+            compareMtopAB(stdout, mtop[0], ftol, abstol);
         }
     }
 }
@@ -184,79 +173,6 @@ static void comp_trx(const gmx_output_env_t *oenv, const char *fn1, const char *
     {
         fprintf(stdout, "\nBoth files read correctly\n");
     }
-}
-
-static void tpx2system(FILE *fp, const gmx_mtop_t *mtop)
-{
-    int                       nmol, nvsite = 0;
-    gmx_mtop_atomloop_block_t aloop;
-    const t_atom             *atom;
-
-    fprintf(fp, "\\subsection{Simulation system}\n");
-    aloop = gmx_mtop_atomloop_block_init(mtop);
-    while (gmx_mtop_atomloop_block_next(aloop, &atom, &nmol))
-    {
-        if (atom->ptype == eptVSite)
-        {
-            nvsite += nmol;
-        }
-    }
-    fprintf(fp, "A system of %d molecules (%d atoms) was simulated.\n",
-            mtop->mols.nr, mtop->natoms-nvsite);
-    if (nvsite)
-    {
-        fprintf(fp, "Virtual sites were used in some of the molecules.\n");
-    }
-    fprintf(fp, "\n\n");
-}
-
-static void tpx2params(FILE *fp, const t_inputrec *ir)
-{
-    fprintf(fp, "\\subsection{Simulation settings}\n");
-    fprintf(fp, "A total of %g ns were simulated with a time step of %g fs.\n",
-            ir->nsteps*ir->delta_t*0.001, 1000*ir->delta_t);
-    fprintf(fp, "Neighbor searching was performed every %d steps.\n", ir->nstlist);
-    fprintf(fp, "The %s algorithm was used for electrostatic interactions.\n",
-            EELTYPE(ir->coulombtype));
-    fprintf(fp, "with a cut-off of %g nm.\n", ir->rcoulomb);
-    if (ir->coulombtype == eelPME)
-    {
-        fprintf(fp, "A reciprocal grid of %d x %d x %d cells was used with %dth order B-spline interpolation.\n", ir->nkx, ir->nky, ir->nkz, ir->pme_order);
-    }
-    if (ir->rvdw > ir->rlist)
-    {
-        fprintf(fp, "A twin-range Van der Waals cut-off (%g/%g nm) was used, where the long range forces were updated during neighborsearching.\n", ir->rlist, ir->rvdw);
-    }
-    else
-    {
-        fprintf(fp, "A single cut-off of %g was used for Van der Waals interactions.\n", ir->rlist);
-    }
-    if (ir->etc != 0)
-    {
-        fprintf(fp, "Temperature coupling was done with the %s algorithm.\n",
-                etcoupl_names[ir->etc]);
-    }
-    if (ir->epc != 0)
-    {
-        fprintf(fp, "Pressure coupling was done with the %s algorithm.\n",
-                epcoupl_names[ir->epc]);
-    }
-    fprintf(fp, "\n\n");
-}
-
-static void tpx2methods(const char *tpx, const char *tex)
-{
-    FILE          *fp;
-    t_state        state;
-    gmx_mtop_t     mtop;
-
-    t_inputrec     ir;
-    read_tpx_state(tpx, &ir, &state, &mtop);
-    fp = gmx_fio_fopen(tex, "w");
-    fprintf(fp, "\\section{Methods}\n");
-    tpx2system(fp, &mtop);
-    tpx2params(fp, &ir);
-    gmx_fio_fclose(fp);
 }
 
 static void chk_coords(int frame, int natoms, rvec *x, matrix box, real fac, real tol)
@@ -376,24 +292,24 @@ static void chk_bonds(t_idef *idef, int ePBC, rvec *x, matrix box, real tol)
     }
 }
 
-void chk_trj(const gmx_output_env_t *oenv, const char *fn, const char *tpr, real tol)
+static void chk_trj(const gmx_output_env_t *oenv, const char *fn, const char *tpr, real tol)
 {
-    t_trxframe       fr;
-    t_count          count;
-    t_fr_time        first, last;
-    int              j = -1, new_natoms, natoms;
-    real             old_t1, old_t2;
-    gmx_bool         bShowTimestep = TRUE, newline = FALSE;
-    t_trxstatus     *status;
-    gmx_mtop_t       mtop;
-    gmx_localtop_t  *top = nullptr;
-    t_state          state;
-    t_inputrec       ir;
+    t_trxframe     fr;
+    t_count        count;
+    t_fr_time      first, last;
+    int            j = -1, new_natoms, natoms;
+    real           old_t1, old_t2;
+    gmx_bool       bShowTimestep = TRUE, newline = FALSE;
+    t_trxstatus   *status;
+    gmx_mtop_t     mtop;
+    gmx_localtop_t top;
+    t_state        state;
+    t_inputrec     ir;
 
     if (tpr)
     {
         read_tpx_state(tpr, &ir, &state, &mtop);
-        top = gmx_mtop_generate_local_top(&mtop, ir.efep != efepNO);
+        gmx_mtop_generate_local_top(mtop, &top, ir.efep != efepNO);
     }
     new_natoms = -1;
     natoms     = -1;
@@ -449,8 +365,8 @@ void chk_trj(const gmx_output_env_t *oenv, const char *fn, const char *tpr, real
         }
         if (j >= 2)
         {
-            if (fabs((fr.time-old_t1)-(old_t1-old_t2)) >
-                0.1*(fabs(fr.time-old_t1)+fabs(old_t1-old_t2)) )
+            if (std::fabs((fr.time-old_t1)-(old_t1-old_t2)) >
+                0.1*(std::fabs(fr.time-old_t1)+std::fabs(old_t1-old_t2)) )
             {
                 bShowTimestep = FALSE;
                 fprintf(stderr, "%sTimesteps at t=%g don't match (%g, %g)\n",
@@ -460,7 +376,7 @@ void chk_trj(const gmx_output_env_t *oenv, const char *fn, const char *tpr, real
         natoms = new_natoms;
         if (tpr)
         {
-            chk_bonds(&top->idef, ir.ePBC, fr.x, fr.box, tol);
+            chk_bonds(&top.idef, ir.ePBC, fr.x, fr.box, tol);
         }
         if (fr.bX)
         {
@@ -479,7 +395,7 @@ void chk_trj(const gmx_output_env_t *oenv, const char *fn, const char *tpr, real
         old_t1 = fr.time;
         j++;
         new_natoms = fr.natoms;
-#define INC(s, n, f, l, item) if (s.item != 0) { if (n.item == 0) { first.item = fr.time; } last.item = fr.time; n.item++; \
+#define INC(s, n, f, l, item) if ((s).item != 0) { if ((n).item == 0) { first.item = fr.time; } last.item = fr.time; (n).item++; \
 }
         INC(fr, count, first, last, bStep);
         INC(fr, count, first, last, bTime);
@@ -512,7 +428,7 @@ void chk_trj(const gmx_output_env_t *oenv, const char *fn, const char *tpr, real
     PRINTITEM ( "Box",        bBox );
 }
 
-void chk_tps(const char *fn, real vdw_fac, real bon_lo, real bon_hi)
+static void chk_tps(const char *fn, real vdw_fac, real bon_lo, real bon_hi)
 {
     int            natom, i, j, k;
     t_topology     top;
@@ -525,7 +441,6 @@ void chk_tps(const char *fn, real vdw_fac, real bon_lo, real bon_hi)
     gmx_bool       bV, bX, bB, bFirst, bOut;
     real           r2, ekin, temp1, temp2, dist2, vdwfac2, bonlo2, bonhi2;
     real          *atom_vdw;
-    gmx_atomprop_t aps;
 
     fprintf(stderr, "Checking coordinate file %s\n", fn);
     read_tps_conf(fn, &top, &ePBC, &x, &v, box, TRUE);
@@ -590,12 +505,12 @@ void chk_tps(const char *fn, real vdw_fac, real bon_lo, real bon_hi)
                 "relative to sum of Van der Waals distance:\n",
                 vdw_fac, bon_lo, bon_hi);
         snew(atom_vdw, natom);
-        aps = gmx_atomprop_init();
+        AtomProperties aps;
         for (i = 0; (i < natom); i++)
         {
-            gmx_atomprop_query(aps, epropVDW,
-                               *(atoms->resinfo[atoms->atom[i].resind].name),
-                               *(atoms->atomname[i]), &(atom_vdw[i]));
+            aps.setAtomProperty(epropVDW,
+                                *(atoms->resinfo[atoms->atom[i].resind].name),
+                                *(atoms->atomname[i]), &(atom_vdw[i]));
             if (debug)
             {
                 fprintf(debug, "%5d %4s %4s %7g\n", i+1,
@@ -604,7 +519,6 @@ void chk_tps(const char *fn, real vdw_fac, real bon_lo, real bon_hi)
                         atom_vdw[i]);
             }
         }
-        gmx_atomprop_destroy(aps);
         if (bB)
         {
             set_pbc(&pbc, ePBC, box);
@@ -713,7 +627,7 @@ void chk_tps(const char *fn, real vdw_fac, real bon_lo, real bon_hi)
     }
 }
 
-void chk_ndx(const char *fn)
+static void chk_ndx(const char *fn)
 {
     t_blocka *grps;
     char    **grpname;
@@ -745,7 +659,7 @@ void chk_ndx(const char *fn)
     done_blocka(grps);
 }
 
-void chk_enx(const char *fn)
+static void chk_enx(const char *fn)
 {
     int            nre, fnr;
     ener_file_t    in;
@@ -774,7 +688,7 @@ void chk_enx(const char *fn)
         if (fnr >= 2)
         {
             if (fabs((fr->t-old_t1)-(old_t1-old_t2)) >
-                0.1*(fabs(fr->t-old_t1)+fabs(old_t1-old_t2)) )
+                0.1*(fabs(fr->t-old_t1)+std::fabs(old_t1-old_t2)) )
             {
                 bShowTStep = FALSE;
                 fprintf(stderr, "\nTimesteps at t=%g don't match (%g, %g)\n",
@@ -829,13 +743,15 @@ int gmx_check(int argc, char *argv[])
         "virtual sites. With these flags, [TT]gmx check[tt] provides a quick check for such problems.[PAR]",
         "The program can compare two run input ([REF].tpr[ref])",
         "files",
-        "when both [TT]-s1[tt] and [TT]-s2[tt] are supplied.",
+        "when both [TT]-s1[tt] and [TT]-s2[tt] are supplied. When comparing",
+        "run input files this way, the default relative tolerance is reduced",
+        "to 0.000001 and the absolute tolerance set to zero to find any differences",
+        "not due to minor compiler optimization differences, although you can",
+        "of course still set any other tolerances through the options.",
         "Similarly a pair of trajectory files can be compared (using the [TT]-f2[tt]",
         "option), or a pair of energy files (using the [TT]-e2[tt] option).[PAR]",
         "For free energy simulations the A and B state topology from one",
-        "run input file can be compared with options [TT]-s1[tt] and [TT]-ab[tt].[PAR]",
-        "In case the [TT]-m[tt] flag is given a LaTeX file will be written",
-        "consisting of a rough outline for a methods section for a paper."
+        "run input file can be compared with options [TT]-s1[tt] and [TT]-ab[tt].[PAR]"
     };
     t_filenm          fnm[] = {
         { efTRX, "-f",  nullptr, ffOPTRD },
@@ -888,6 +804,12 @@ int gmx_check(int argc, char *argv[])
     fn1 = opt2fn_null("-f", NFILE, fnm);
     fn2 = opt2fn_null("-f2", NFILE, fnm);
     tex = opt2fn_null("-m", NFILE, fnm);
+
+    if (tex)
+    {
+        fprintf(stderr, "LaTeX file writing has been removed from gmx check. "
+                "Please use gmx report-methods instead for it.\n");
+    }
     if (fn1 && fn2)
     {
         comp_trx(oenv, fn1, fn2, bRMSD, ftol, abstol);
@@ -913,16 +835,21 @@ int gmx_check(int argc, char *argv[])
             }
             fn2 = nullptr;
         }
+
+        fprintf(stderr, "Note: When comparing run input files, default tolerances are reduced.\n");
+        if (!opt2parg_bSet("-tol", asize(pa), pa))
+        {
+            ftol = 0.000001;
+        }
+        if (!opt2parg_bSet("-abstol", asize(pa), pa))
+        {
+            abstol = 0;
+        }
         comp_tpx(fn1, fn2, bRMSD, ftol, abstol);
-    }
-    else if (fn1 && tex)
-    {
-        tpx2methods(fn1, tex);
     }
     else if ((fn1 && !opt2fn_null("-f", NFILE, fnm)) || (!fn1 && fn2))
     {
-        fprintf(stderr, "Please give me TWO run input (.tpr) files\n"
-                "or specify the -m flag to generate a methods.tex file\n");
+        fprintf(stderr, "Please give me TWO run input (.tpr) files\n");
     }
 
     fn1 = opt2fn_null("-e", NFILE, fnm);

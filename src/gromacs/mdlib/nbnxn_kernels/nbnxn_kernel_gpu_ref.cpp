@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2012,2013,2014,2015,2016,2017, by the GROMACS development team, led by
+ * Copyright (c) 2012,2013,2014,2015,2016,2017,2018,2019, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -45,38 +45,36 @@
 #include "gromacs/math/functions.h"
 #include "gromacs/math/utilities.h"
 #include "gromacs/math/vec.h"
-#include "gromacs/mdlib/force.h"
+#include "gromacs/mdlib/force_flags.h"
 #include "gromacs/mdlib/nb_verlet.h"
 #include "gromacs/mdlib/nbnxn_consts.h"
-#include "gromacs/mdlib/nbnxn_kernels/nbnxn_kernel_common.h"
 #include "gromacs/mdtypes/md_enums.h"
 #include "gromacs/pbcutil/ishift.h"
 #include "gromacs/utility/fatalerror.h"
+
+#include "nbnxn_kernel_common.h"
 
 static const int c_numClPerSupercl = c_nbnxnGpuNumClusterPerSupercluster;
 static const int c_clSize          = c_nbnxnGpuClusterSize;
 
 void
-nbnxn_kernel_gpu_ref(const nbnxn_pairlist_t     *nbl,
+nbnxn_kernel_gpu_ref(const NbnxnPairlistGpu     *nbl,
                      const nbnxn_atomdata_t     *nbat,
                      const interaction_const_t  *iconst,
                      rvec                       *shift_vec,
                      int                         force_flags,
                      int                         clearF,
-                     real  *                     f,
+                     gmx::ArrayRef<real>         f,
                      real  *                     fshift,
                      real  *                     Vc,
                      real  *                     Vvdw)
 {
-    const nbnxn_sci_t  *nbln;
-    const real         *x;
     gmx_bool            bEner;
     gmx_bool            bEwald;
     const real         *Ftab = nullptr;
     real                rcut2, rvdw2, rlist2;
     int                 ntype;
     real                facel;
-    int                 n;
     int                 ish3;
     int                 sci;
     int                 cj4_ind0, cj4_ind1, cj4_ind;
@@ -101,9 +99,6 @@ nbnxn_kernel_gpu_ref(const nbnxn_pairlist_t     *nbl,
     int                 int_bit;
     real                fexcl;
     real                c6, c12;
-    const real       *  shiftvec;
-    real       *        vdwparam;
-    int       *         type;
     const nbnxn_excl_t *excl[2];
 
     int                 npair_tot, npair;
@@ -116,10 +111,10 @@ nbnxn_kernel_gpu_ref(const nbnxn_pairlist_t     *nbl,
 
     if (clearF == enbvClearFYes)
     {
-        clear_f(nbat, 0, f);
+        clear_f(nbat, 0, f.data());
     }
 
-    bEner = (force_flags & GMX_FORCE_ENERGY);
+    bEner = ((force_flags & GMX_FORCE_ENERGY) != 0);
 
     bEwald = EEL_FULL(iconst->eeltype);
     if (bEwald)
@@ -127,38 +122,36 @@ nbnxn_kernel_gpu_ref(const nbnxn_pairlist_t     *nbl,
         Ftab = iconst->tabq_coul_F;
     }
 
-    rcut2               = iconst->rcoulomb*iconst->rcoulomb;
-    rvdw2               = iconst->rvdw*iconst->rvdw;
+    rcut2                = iconst->rcoulomb*iconst->rcoulomb;
+    rvdw2                = iconst->rvdw*iconst->rvdw;
 
-    rlist2              = nbl->rlist*nbl->rlist;
+    rlist2               = nbl->rlist*nbl->rlist;
 
-    type                = nbat->type;
-    facel               = iconst->epsfac;
-    shiftvec            = shift_vec[0];
-    vdwparam            = nbat->nbfp;
-    ntype               = nbat->ntype;
+    const int  *type     = nbat->params().type.data();
+    facel                = iconst->epsfac;
+    const real *shiftvec = shift_vec[0];
+    const real *vdwparam = nbat->params().nbfp.data();
+    ntype                = nbat->params().numTypes;
 
-    x = nbat->x;
+    const real *x        = nbat->x().data();
 
     npair_tot   = 0;
     nhwu        = 0;
     nhwu_pruned = 0;
 
-    for (n = 0; n < nbl->nsci; n++)
+    for (const nbnxn_sci_t &nbln : nbl->sci)
     {
-        nbln = &nbl->sci[n];
-
-        ish3             = 3*nbln->shift;
+        ish3             = 3*nbln.shift;
         shX              = shiftvec[ish3];
         shY              = shiftvec[ish3+1];
         shZ              = shiftvec[ish3+2];
-        cj4_ind0         = nbln->cj4_ind_start;
-        cj4_ind1         = nbln->cj4_ind_end;
-        sci              = nbln->sci;
+        cj4_ind0         = nbln.cj4_ind_start;
+        cj4_ind1         = nbln.cj4_ind_end;
+        sci              = nbln.sci;
         vctot            = 0;
         Vvdwtot          = 0;
 
-        if (nbln->shift == CENTRAL &&
+        if (nbln.shift == CENTRAL &&
             nbl->cj4[cj4_ind0].cj[0] == sci*c_numClPerSupercl)
         {
             /* we have the diagonal:
@@ -227,13 +220,15 @@ nbnxn_kernel_gpu_ref(const nbnxn_pairlist_t     *nbl,
                             {
                                 ja               = cj*c_clSize + jc;
 
-                                if (nbln->shift == CENTRAL &&
+                                if (nbln.shift == CENTRAL &&
                                     ci == cj && ja <= ia)
                                 {
                                     continue;
                                 }
 
-                                int_bit = ((excl[jc >> 2]->pair[(jc & 3)*c_clSize + ic] >> (jm*c_numClPerSupercl + im)) & 1);
+                                constexpr int clusterPerSplit = c_nbnxnGpuClusterSize/c_nbnxnGpuClusterpairSplit;
+                                int_bit = ((excl[jc/clusterPerSplit]->pair[(jc & (clusterPerSplit - 1))*c_clSize + ic]
+                                            >> (jm*c_numClPerSupercl + im)) & 1);
 
                                 js               = ja*nbat->xstride;
                                 jfs              = ja*nbat->fstride;
@@ -279,7 +274,7 @@ nbnxn_kernel_gpu_ref(const nbnxn_pairlist_t     *nbl,
                                 {
                                     r     = rsq*rinv;
                                     rt    = r*iconst->tabq_scale;
-                                    n0    = rt;
+                                    n0    = static_cast<int>(rt);
                                     eps   = rt - n0;
 
                                     fexcl = (1 - eps)*Ftab[n0] + eps*Ftab[n0+1];
@@ -367,7 +362,7 @@ nbnxn_kernel_gpu_ref(const nbnxn_pairlist_t     *nbl,
     {
         fprintf(debug, "number of half %dx%d atom pairs: %d after pruning: %d fraction %4.2f\n",
                 nbl->na_ci, nbl->na_ci,
-                nhwu, nhwu_pruned, nhwu_pruned/(double)nhwu);
+                nhwu, nhwu_pruned, nhwu_pruned/static_cast<double>(nhwu));
         fprintf(debug, "generic kernel pair interactions:            %d\n",
                 nhwu*nbl->na_ci/2*nbl->na_ci);
         fprintf(debug, "generic kernel post-prune pair interactions: %d\n",
@@ -375,6 +370,6 @@ nbnxn_kernel_gpu_ref(const nbnxn_pairlist_t     *nbl,
         fprintf(debug, "generic kernel non-zero pair interactions:   %d\n",
                 npair_tot);
         fprintf(debug, "ratio non-zero/post-prune pair interactions: %4.2f\n",
-                npair_tot/(double)(nhwu_pruned*nbl->na_ci/2*nbl->na_ci));
+                npair_tot/static_cast<double>(nhwu_pruned*gmx::exactDiv(nbl->na_ci, 2)*nbl->na_ci));
     }
 }

@@ -3,7 +3,7 @@
  *
  * Copyright (c) 1991-2000, University of Groningen, The Netherlands.
  * Copyright (c) 2001-2004, The GROMACS development team.
- * Copyright (c) 2012,2014,2015,2016, by the GROMACS development team, led by
+ * Copyright (c) 2012,2014,2015,2016,2018,2019, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -41,6 +41,7 @@
 
 #include "gromacs/utility/basedefinitions.h"
 #include "gromacs/utility/real.h"
+#include "gromacs/utility/unique_cptr.h"
 
 struct t_symtab;
 
@@ -131,11 +132,6 @@ typedef struct t_atoms
 typedef struct t_atomtypes
 {
     int           nr;           /* number of atomtypes                          */
-    real         *radius;       /* GBSA radius for each atomtype                */
-    real         *vol;          /* GBSA efective volume for each atomtype       */
-    real         *surftens;     /* implicit solvent surftens for each atomtype  */
-    real         *gb_radius;    /* GB radius for each atom type                 */
-    real         *S_hct;        /* Overlap factors for HCT/OBC GB models        */
     int          *atomnumber;   /* Atomic number, used for QM/MM                */
 } t_atomtypes;
 
@@ -144,6 +140,7 @@ typedef struct t_atomtypes
 void init_atom(t_atoms *at);
 void init_atomtypes(t_atomtypes *at);
 void done_atom(t_atoms *at);
+void done_and_delete_atoms(t_atoms *atoms);
 void done_atomtypes(t_atomtypes *at);
 
 void init_t_atoms(t_atoms *atoms, int natoms, gmx_bool bPdbinfo);
@@ -170,7 +167,19 @@ void pr_atoms(FILE *fp, int indent, const char *title, const t_atoms *atoms,
 void pr_atomtypes(FILE *fp, int indent, const char *title,
                   const t_atomtypes *atomtypes, gmx_bool bShowNumbers);
 
-void cmp_atoms(FILE *fp, const t_atoms *a1, const t_atoms *a2, real ftol, real abstol);
+/*! \brief Compare information in the t_atoms data structure.
+ *
+ * \param[in] fp Pointer to file to write to.
+ * \param[in] a1 Pointer to first data structure to compare.
+ * \param[in] a2 Pointer to second data structure or nullptr.
+ * \param[in] relativeTolerance Relative floating point comparison tolerance.
+ * \param[in] absoluteTolerance Absolute floating point comparison tolerance.
+ */
+void compareAtoms(FILE          *fp,
+                  const t_atoms *a1,
+                  const t_atoms *a2,
+                  real           relativeTolerance,
+                  real           absoluteTolerance);
 
 /*! \brief Set mass for each atom using the atom and residue names using a database
  *
@@ -179,5 +188,9 @@ void cmp_atoms(FILE *fp, const t_atoms *a1, const t_atoms *a2, real ftol, real a
  * to stderr.
  */
 void atomsSetMassesBasedOnNames(t_atoms *atoms, gmx_bool printMissingMasses);
+
+//! Deleter for t_atoms, needed until it has a proper destructor.
+using AtomsDataPtr = gmx::unique_cptr<t_atoms, done_and_delete_atoms>;
+
 
 #endif

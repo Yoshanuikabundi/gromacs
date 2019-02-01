@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2016,2017, by the GROMACS development team, led by
+ * Copyright (c) 2016,2017,2018,2019, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -71,8 +71,8 @@
 #include <utility>
 #include <vector>
 
+#include "gromacs/utility/any.h"
 #include "gromacs/utility/real.h"
-#include "gromacs/utility/variant.h"
 
 namespace gmx
 {
@@ -113,6 +113,12 @@ class KeyValueTreePath
 
         //! Adds another element to the path, making it a child of the old path.
         void append(const std::string &key) { path_.push_back(key); }
+        //! Adds elements from another path to the path.
+        void append(const KeyValueTreePath &other)
+        {
+            auto elements = other.elements();
+            path_.insert(path_.end(), elements.begin(), elements.end());
+        }
         //! Removes the last element in the path, making it the parent path.
         void pop_back() { return path_.pop_back(); }
         //! Removes and returns the last element in the path.
@@ -139,6 +145,25 @@ class KeyValueTreePath
         std::vector<std::string> path_;
 };
 
+//! \cond libapi
+
+//! Combines two paths as with KeyValueTreePath::append().
+inline KeyValueTreePath operator+(const KeyValueTreePath &a, const KeyValueTreePath &b)
+{
+    KeyValueTreePath result(a);
+    result.append(b);
+    return result;
+}
+
+//! Combines an element to a path as with KeyValueTreePath::append().
+inline KeyValueTreePath operator+(const KeyValueTreePath &a, const std::string &b)
+{
+    KeyValueTreePath result(a);
+    result.append(b);
+    return result;
+}
+//! \endcond
+
 class KeyValueTreeValue
 {
     public:
@@ -159,13 +184,13 @@ class KeyValueTreeValue
         template <typename T>
         const T                  &cast() const { return value_.cast<T>(); }
 
-        //! Returns the raw Variant value (always possible).
-        const Variant            &asVariant() const { return value_; }
+        //! Returns the raw Any value (always possible).
+        const Any            &asAny() const { return value_; }
 
     private:
-        explicit KeyValueTreeValue(Variant &&value) : value_(std::move(value)) {}
+        explicit KeyValueTreeValue(Any &&value) : value_(std::move(value)) {}
 
-        Variant             value_;
+        Any             value_;
 
         friend class KeyValueTreeBuilder;
         friend class KeyValueTreeObjectBuilder;
@@ -223,7 +248,7 @@ class KeyValueTreeObject
             }
         }
         //! Assigns a deep copy of an object.
-        KeyValueTreeObject &operator=(KeyValueTreeObject &other)
+        KeyValueTreeObject &operator=(const KeyValueTreeObject &other)
         {
             KeyValueTreeObject tmp(other);
             std::swap(tmp.valueMap_, valueMap_);
@@ -231,6 +256,7 @@ class KeyValueTreeObject
             return *this;
         }
         //! Default move constructor.
+        //NOLINTNEXTLINE(performance-noexcept-move-constructor) bug #38733
         KeyValueTreeObject(KeyValueTreeObject &&)            = default;
         //! Default move assignment.
         KeyValueTreeObject &operator=(KeyValueTreeObject &&) = default;
@@ -324,7 +350,7 @@ void compareKeyValueTrees(TextWriter               *writer,
 static inline std::string
 simpleValueToString(const KeyValueTreeValue &value)
 {
-    return simpleValueToString(value.asVariant());
+    return simpleValueToString(value.asAny());
 }
 
 //! \endcond

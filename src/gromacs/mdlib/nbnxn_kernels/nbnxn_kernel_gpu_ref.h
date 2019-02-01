@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2012,2013,2014,2015, by the GROMACS development team, led by
+ * Copyright (c) 2012,2013,2014,2015,2018,2019, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -39,27 +39,20 @@
 #include "gromacs/math/vectypes.h"
 #include "gromacs/mdlib/nbnxn_pairlist.h"
 #include "gromacs/mdtypes/forcerec.h"
+#include "gromacs/utility/arrayref.h"
 #include "gromacs/utility/real.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 /* Reference (slow) kernel for nb n vs n GPU type pair lists */
 void
-nbnxn_kernel_gpu_ref(const nbnxn_pairlist_t     *nbl,
+nbnxn_kernel_gpu_ref(const NbnxnPairlistGpu     *nbl,
                      const nbnxn_atomdata_t     *nbat,
                      const interaction_const_t  *iconst,
                      rvec                       *shift_vec,
                      int                         force_flags,
                      int                         clearF,
-                     real  *                     f,
+                     gmx::ArrayRef<real>         f,
                      real  *                     fshift,
                      real  *                     Vc,
                      real  *                     Vvdw);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif

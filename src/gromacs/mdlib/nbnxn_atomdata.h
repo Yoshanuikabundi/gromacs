@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2012,2013,2014,2015,2016,2017, by the GROMACS development team, led by
+ * Copyright (c) 2012,2013,2014,2015,2016,2017,2018,2019, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -43,21 +43,13 @@
 #include "gromacs/utility/basedefinitions.h"
 #include "gromacs/utility/real.h"
 
+namespace gmx
+{
+class MDLogger;
+}
+
 struct t_mdatoms;
-
-/* Default nbnxn allocation routine, allocates 32 byte aligned,
- * which works for plain C and aligned SSE and AVX loads/stores.
- */
-void nbnxn_alloc_aligned(void **ptr, size_t nbytes);
-
-/* Free function for memory allocated with nbnxn_alloc_aligned */
-void nbnxn_free_aligned(void *ptr);
-
-/* Reallocation wrapper function for nbnxn data structures */
-void nbnxn_realloc_void(void **ptr,
-                        int nbytes_copy, int nbytes_new,
-                        nbnxn_alloc_t *ma,
-                        nbnxn_free_t  *mf);
+struct gmx_wallcycle;
 
 /* Reallocate the nbnxn_atomdata_t for a size of n atoms */
 void nbnxn_atomdata_realloc(nbnxn_atomdata_t *nbat, int n);
@@ -79,20 +71,16 @@ enum {
  * to the atom data structure.
  * enbnxninitcombrule sets what combination rule data gets stored in nbat.
  */
-void nbnxn_atomdata_init(FILE *fp,
+void nbnxn_atomdata_init(const gmx::MDLogger &mdlog,
                          nbnxn_atomdata_t *nbat,
                          int nb_kernel_type,
                          int enbnxninitcombrule,
                          int ntype, const real *nbfp,
                          int n_energygroups,
-                         int nout,
-                         nbnxn_alloc_t *alloc,
-                         nbnxn_free_t  *free);
+                         int nout);
 
-/* Copy the atom data to the non-bonded atom data structure */
 void nbnxn_atomdata_set(nbnxn_atomdata_t    *nbat,
-                        int                  locality,
-                        const nbnxn_search_t nbs,
+                        const nbnxn_search  *nbs,
                         const t_mdatoms     *mdatoms,
                         const int           *atinfo);
 
@@ -104,17 +92,19 @@ void nbnxn_atomdata_copy_shiftvec(gmx_bool          dynamic_box,
 /* Copy x to nbat->x.
  * FillLocal tells if the local filler particle coordinates should be zeroed.
  */
-void nbnxn_atomdata_copy_x_to_nbat_x(const nbnxn_search_t nbs,
+void nbnxn_atomdata_copy_x_to_nbat_x(const nbnxn_search  *nbs,
                                      int                  locality,
                                      gmx_bool             FillLocal,
                                      rvec                *x,
-                                     nbnxn_atomdata_t    *nbat);
+                                     nbnxn_atomdata_t    *nbat,
+                                     gmx_wallcycle       *wcycle);
 
 /* Add the forces stored in nbat to f, zeros the forces in nbat */
-void nbnxn_atomdata_add_nbat_f_to_f(const nbnxn_search_t    nbs,
+void nbnxn_atomdata_add_nbat_f_to_f(nbnxn_search           *nbs,
                                     int                     locality,
-                                    const nbnxn_atomdata_t *nbat,
-                                    rvec                   *f);
+                                    nbnxn_atomdata_t       *nbat,
+                                    rvec                   *f,
+                                    gmx_wallcycle          *wcycle);
 
 /* Add the fshift force stored in nbat to fshift */
 void nbnxn_atomdata_add_nbat_fshift_to_fshift(const nbnxn_atomdata_t *nbat,

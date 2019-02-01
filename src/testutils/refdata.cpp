@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2011,2012,2013,2014,2015,2016,2017, by the GROMACS development team, led by
+ * Copyright (c) 2011,2012,2013,2014,2015,2016,2017,2018,2019, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -54,13 +54,13 @@
 
 #include "gromacs/options/basicoptions.h"
 #include "gromacs/options/ioptionscontainer.h"
+#include "gromacs/utility/any.h"
 #include "gromacs/utility/exceptions.h"
 #include "gromacs/utility/gmxassert.h"
 #include "gromacs/utility/keyvaluetree.h"
 #include "gromacs/utility/path.h"
 #include "gromacs/utility/real.h"
 #include "gromacs/utility/stringutil.h"
-#include "gromacs/utility/variant.h"
 
 #include "testutils/refdata-checkers.h"
 #include "testutils/refdata-impl.h"
@@ -188,7 +188,7 @@ TestReferenceDataImplPointer initReferenceDataInstanceForSelfTest(ReferenceDataM
 class ReferenceDataTestEventListener : public ::testing::EmptyTestEventListener
 {
     public:
-        virtual void OnTestEnd(const ::testing::TestInfo &test_info)
+        void OnTestEnd(const ::testing::TestInfo &test_info) override
         {
             if (g_referenceData)
             {
@@ -199,7 +199,7 @@ class ReferenceDataTestEventListener : public ::testing::EmptyTestEventListener
             }
         }
 
-        virtual void OnTestProgramEnd(const ::testing::UnitTest &)
+        void OnTestProgramEnd(const ::testing::UnitTest & /*unused*/) override
         {
             // Could be used e.g. to free internal buffers allocated by an XML parsing library
         }
@@ -726,13 +726,13 @@ TestReferenceChecker::TestReferenceChecker(const TestReferenceChecker &other)
 {
 }
 
-TestReferenceChecker::TestReferenceChecker(TestReferenceChecker &&other)
+TestReferenceChecker::TestReferenceChecker(TestReferenceChecker &&other) noexcept
     : impl_(std::move(other.impl_))
 {
 }
 
 TestReferenceChecker &
-TestReferenceChecker::operator=(TestReferenceChecker &&other)
+TestReferenceChecker::operator=(TestReferenceChecker &&other) noexcept
 {
     impl_ = std::move(other.impl_);
     return *this;
@@ -830,6 +830,10 @@ TestReferenceChecker TestReferenceChecker::checkCompound(const char *type, const
                      impl_->defaultTolerance_));
 }
 
+TestReferenceChecker TestReferenceChecker::checkCompound(const char *type, const std::string &id)
+{
+    return checkCompound(type, id.c_str());
+}
 
 /*! \brief Throw a TestException if the caller tries to write particular refdata that can't work.
  *
@@ -900,16 +904,16 @@ void TestReferenceChecker::checkInteger(int value, const char *id)
                                     ExactStringChecker(formatString("%d", value))));
 }
 
-void TestReferenceChecker::checkInt64(gmx_int64_t value, const char *id)
+void TestReferenceChecker::checkInt64(int64_t value, const char *id)
 {
     EXPECT_PLAIN(impl_->processItem(Impl::cInt64NodeName, id,
-                                    ExactStringChecker(formatString("%" GMX_PRId64, value))));
+                                    ExactStringChecker(formatString("%" PRId64, value))));
 }
 
-void TestReferenceChecker::checkUInt64(gmx_uint64_t value, const char *id)
+void TestReferenceChecker::checkUInt64(uint64_t value, const char *id)
 {
     EXPECT_PLAIN(impl_->processItem(Impl::cUInt64NodeName, id,
-                                    ExactStringChecker(formatString("%" GMX_PRIu64, value))));
+                                    ExactStringChecker(formatString("%" PRIu64, value))));
 }
 
 void TestReferenceChecker::checkDouble(double value, const char *id)
@@ -972,35 +976,35 @@ void TestReferenceChecker::checkVector(const double value[3], const char *id)
 }
 
 
-void TestReferenceChecker::checkVariant(const Variant &variant, const char *id)
+void TestReferenceChecker::checkAny(const Any &any, const char *id)
 {
-    if (variant.isType<bool>())
+    if (any.isType<bool>())
     {
-        checkBoolean(variant.cast<bool>(), id);
+        checkBoolean(any.cast<bool>(), id);
     }
-    else if (variant.isType<int>())
+    else if (any.isType<int>())
     {
-        checkInteger(variant.cast<int>(), id);
+        checkInteger(any.cast<int>(), id);
     }
-    else if (variant.isType<gmx_int64_t>())
+    else if (any.isType<int64_t>())
     {
-        checkInt64(variant.cast<gmx_int64_t>(), id);
+        checkInt64(any.cast<int64_t>(), id);
     }
-    else if (variant.isType<float>())
+    else if (any.isType<float>())
     {
-        checkFloat(variant.cast<float>(), id);
+        checkFloat(any.cast<float>(), id);
     }
-    else if (variant.isType<double>())
+    else if (any.isType<double>())
     {
-        checkDouble(variant.cast<double>(), id);
+        checkDouble(any.cast<double>(), id);
     }
-    else if (variant.isType<std::string>())
+    else if (any.isType<std::string>())
     {
-        checkString(variant.cast<std::string>(), id);
+        checkString(any.cast<std::string>(), id);
     }
     else
     {
-        GMX_THROW(TestException("Unsupported variant type"));
+        GMX_THROW(TestException("Unsupported any type"));
     }
 }
 
@@ -1029,7 +1033,7 @@ void TestReferenceChecker::checkKeyValueTreeValue(const KeyValueTreeValue &value
     }
     else
     {
-        checkVariant(value.asVariant(), id);
+        checkAny(value.asAny(), id);
     }
 }
 
@@ -1069,15 +1073,15 @@ int TestReferenceChecker::readInteger(const char *id)
 }
 
 
-gmx_int64_t TestReferenceChecker::readInt64(const char *id)
+int64_t TestReferenceChecker::readInt64(const char *id)
 {
     if (impl_->shouldIgnore())
     {
         GMX_THROW(TestException("Trying to read from non-existent reference data value"));
     }
-    gmx_int64_t value = 0;
+    int64_t value = 0;
     EXPECT_PLAIN(impl_->processItem(Impl::cInt64NodeName, id,
-                                    ValueExtractor<gmx_int64_t>(&value)));
+                                    ValueExtractor<int64_t>(&value)));
     return value;
 }
 

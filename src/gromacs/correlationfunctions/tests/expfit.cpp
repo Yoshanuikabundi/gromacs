@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2014,2015,2017, by the GROMACS development team, led by
+ * Copyright (c) 2014,2015,2017,2018,2019, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -44,6 +44,8 @@
 
 #include "gromacs/correlationfunctions/expfit.h"
 
+#include "config.h"
+
 #include <cmath>
 
 #include <gtest/gtest.h>
@@ -61,7 +63,7 @@ namespace gmx
 
 namespace
 {
-
+#if HAVE_LMFIT
 class ExpfitData
 {
     public:
@@ -103,8 +105,8 @@ class ExpfitTest : public ::testing::Test
                 ed.endTime_   = tempValues[0][ed.nrLines_-1];
                 for (int j = 0; j  < ed.nrLines_; j++)
                 {
-                    ed.x_.push_back((real)tempValues[0][j]);
-                    ed.y_.push_back((real)tempValues[1][j]);
+                    ed.x_.push_back(static_cast<real>(tempValues[0][j]));
+                    ed.y_.push_back(static_cast<real>(tempValues[1][j]));
                 }
                 data_.push_back(ed);
 
@@ -151,6 +153,9 @@ class ExpfitTest : public ::testing::Test
 
 //static var
 std::vector<ExpfitData> ExpfitTest::data_;
+
+// TODO calling test() leads to a fatal error, which we could in
+// principle test for.
 
 TEST_F (ExpfitTest, EffnEXP1) {
     double  param[] = {25};
@@ -202,6 +207,8 @@ TEST_F (ExpfitTest, EffnPRES) {
     test(effnPRES, param, 1e-4, 1);
 }
 
-}
+#endif
 
-}
+}  // namespace
+
+}  // namespace gmx

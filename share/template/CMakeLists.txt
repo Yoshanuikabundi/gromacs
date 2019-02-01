@@ -1,7 +1,7 @@
 #
 # This file is part of the GROMACS molecular simulation package.
 #
-# Copyright (c) 2011,2012,2014,2016, by the GROMACS development team, led by
+# Copyright (c) 2011,2012,2014,2016,2018,2019, by the GROMACS development team, led by
 # Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
 # and including many others, as listed in the AUTHORS file in the
 # top-level source directory and at http://www.gromacs.org.
@@ -33,7 +33,7 @@
 # the research papers on the package. Check out http://www.gromacs.org.
 
 add_executable(template template.cpp)
-target_link_libraries(template libgromacs ${GMX_EXE_LINKER_FLAGS} ${GMX_STDLIB_LIBRARIES})
+target_link_libraries(template libgromacs ${GMX_EXE_LINKER_FLAGS})
 
 set(DOCUMENTATION_HTTP_URL_BASE
     http://jenkins.gromacs.org/job/Documentation_Nightly_master/javadoc)
@@ -44,14 +44,14 @@ endif()
 configure_file(README.cmakein README @ONLY)
 
 install(FILES CMakeLists.txt.template
-        DESTINATION ${DATA_INSTALL_DIR}/template
+        DESTINATION ${GMX_INSTALL_GMXDATADIR}/template
         RENAME CMakeLists.txt
         COMPONENT development)
 
     install(FILES ${CMAKE_CURRENT_BINARY_DIR}/README template.cpp Makefile.pkg
-        DESTINATION ${DATA_INSTALL_DIR}/template
+        DESTINATION ${GMX_INSTALL_GMXDATADIR}/template
         COMPONENT development)
 
 install(FILES cmake/FindGROMACS.cmake
-        DESTINATION ${DATA_INSTALL_DIR}/template/cmake
+        DESTINATION ${GMX_INSTALL_GMXDATADIR}/template/cmake
         COMPONENT development)

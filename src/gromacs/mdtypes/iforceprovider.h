@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2016,2017, by the GROMACS development team, led by
+ * Copyright (c) 2016,2017,2018, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -34,67 +34,175 @@
  */
 /*! \libinternal \file
  * \brief
- * Declares gmx::IForceProvider.
+ * Declares gmx::IForceProvider and ForceProviders.
  *
  * See \ref page_mdmodules for an overview of this and associated interfaces.
  *
+ * \author Teemu Murtola <teemu.murtola@gmail.com>
+ * \author Carsten Kutzner <ckutzne@gwdg.de>
  * \inlibraryapi
  * \ingroup module_mdtypes
  */
 #ifndef GMX_MDTYPES_IFORCEPROVIDER_H
 #define GMX_MDTYPES_IFORCEPROVIDER_H
 
-#include "gromacs/math/paddedvector.h"
+#include "gromacs/math/vec.h"
+#include "gromacs/utility/arrayref.h"
+#include "gromacs/utility/classhelpers.h"
+#include "gromacs/utility/gmxassert.h"
 
+struct gmx_enerdata_t;
 struct t_commrec;
 struct t_forcerec;
 struct t_mdatoms;
 
+namespace gmx
+{
+
+template <typename T>
+class ArrayRef;
+class ForceWithVirial;
+
+
+/*! \libinternal \brief
+ * Helper struct that bundles data for passing it over to the force providers
+ *
+ * This is a short-lived container that bundles up all necessary input data for the
+ * force providers. Its only purpose is to allow calling forceProviders->calculateForces()
+ * with just two arguments, one being the container for the input data,
+ * the other the container for the output data.
+ *
+ * Both ForceProviderInput as well as ForceProviderOutput only package existing
+ * data structs together for handing it over to calculateForces(). Apart from the
+ * POD entries they own nothing.
+ */
+class ForceProviderInput
+{
+    public:
+        /*! \brief Constructor assembles all necessary force provider input data
+         *
+         * \param[in]  x        Atomic positions
+         * \param[in]  cr       Communication record structure
+         * \param[in]  box      The simulation box
+         * \param[in]  time     The current time in the simulation
+         * \param[in]  mdatoms  The atomic data
+         */
+        ForceProviderInput(ArrayRef<const RVec> x,
+                           const t_mdatoms     &mdatoms,
+                           double               time,
+                           const matrix         box,
+                           const t_commrec     &cr)
+            : x_(x), mdatoms_(mdatoms), t_(time), cr_(cr)
+        {
+            copy_mat(box, box_);
+        }
+
+        ArrayRef<const RVec> x_;                                        //!< The atomic positions
+        const t_mdatoms     &mdatoms_;                                  //!< Atomic data
+        double               t_;                                        //!< The current time in the simulation
+        matrix               box_ = {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}};  //!< The simulation box
+        const t_commrec     &cr_;                                       //!< Communication record structure
+};
+
+/*! \brief Take pointer, check if valid, return reference
+ */
+template <class T> T &makeRefFromPointer(T *ptr)
+{
+    GMX_ASSERT(ptr != nullptr, "got null pointer");
+    return *ptr;
+}
+
+/*! \libinternal \brief
+ * Helper struct bundling the output data of a force provider
+ *
+ * Same as for the ForceProviderInput class, but these variables can be written as well.
+ */
+class ForceProviderOutput
+{
+    public:
+        /*! \brief Constructor assembles all necessary force provider output data
+         *
+         * \param[in,out]  forceWithVirial  Container for force and virial
+         * \param[in,out]  enerd            Structure containing energy data
+         */
+        ForceProviderOutput(ForceWithVirial *forceWithVirial,
+                            gmx_enerdata_t  *enerd)
+            : forceWithVirial_(makeRefFromPointer(forceWithVirial)), enerd_(makeRefFromPointer(enerd))
+        {
+        }
+
+        ForceWithVirial &forceWithVirial_; //!< Container for force and virial
+        gmx_enerdata_t  &enerd_;           //!< Structure containing energy data
+};
+
+
 /*! \libinternal \brief
  * Interface for a component that provides forces during MD.
  *
- * This is typically part of a larger structure/class managing its own
- * data, such that it has the information on what to do stored locally.
+ * Modules implementing IMDModule generally implement this internally, and use
+ * IMDModule::initForceProviders() to register their implementation in
+ * ForceProviders.
  *
- * The interface is not very generic, as it has been written purely based on
- * extraction of existing functions related to electric field handling.
- * This needs to be generalized when more modules are moved to use the
- * interface.
+ * The interface most likely requires additional generalization for use in
+ * other modules than the current electric field implementation.
+ *
+ * The forces that are produced by force providers are not taken into account
+ * in the calculation of the virial. When applicable, the provider should
+ * compute its own virial contribution.
  *
  * \inlibraryapi
  * \ingroup module_mdtypes
  */
-struct IForceProvider
+class IForceProvider
 {
     public:
         /*! \brief
-         * Sets relevant options in the forcerec structure.
-         *
-         * \param[inout] fr The forcerec structure
-         *
-         * \todo
-         * This should be replaced by a method that returns a set of
-         * flags/other options (either here, or where the IForceProvider
-         * instance is returned), and forcerec should be initialized based on
-         * that.
-         */
-        virtual void initForcerec(t_forcerec *fr) = 0;
-
-        /*! \brief
          * Computes forces.
          *
-         * \param[in]    cr      Communication record for parallel operations
-         * \param[in]    mdatoms Atom information
-         * \param[inout] force   The forces
-         * \param[in]    t       The actual time in the simulation (ps)
+         * \param[in]    forceProviderInput    struct that collects input data for the force providers
+         * \param[in,out] forceProviderOutput   struct that collects output data of the force providers
          */
-        virtual void calculateForces(const t_commrec  *cr,
-                                     const t_mdatoms  *mdatoms,
-                                     PaddedRVecVector *force,
-                                     double            t) = 0;
+        virtual void calculateForces(const ForceProviderInput &forceProviderInput,
+                                     ForceProviderOutput      *forceProviderOutput) = 0;
 
     protected:
         ~IForceProvider() {}
+};
+
+} // namespace gmx
+
+/*! \libinternal \brief
+ * Evaluates forces from a collection of gmx::IForceProvider.
+ *
+ * This class is a `struct` outside the `gmx` namespace to make it possible to
+ * forward-declare it in forcerec.h, which still needs to compile when included
+ * from the C group kernels.
+ *
+ * \inlibraryapi
+ * \ingroup module_mdtypes
+ */
+struct ForceProviders
+{
+    public:
+        ForceProviders();
+        ~ForceProviders();
+
+        /*! \brief
+         * Adds a provider.
+         */
+        void addForceProvider(gmx::IForceProvider *provider);
+
+        //! Whether there are modules added.
+        bool hasForceProvider() const;
+
+        //! Computes forces.
+        void calculateForces(const gmx::ForceProviderInput &forceProviderInput,
+                             gmx::ForceProviderOutput      *forceProviderOutput) const;
+
+    private:
+        class Impl;
+
+        gmx::PrivateImplPointer<Impl> impl_;
 };
 
 #endif

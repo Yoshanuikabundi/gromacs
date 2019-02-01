@@ -3,7 +3,7 @@
  *
  * Copyright (c) 1991-2000, University of Groningen, The Netherlands.
  * Copyright (c) 2001-2004, The GROMACS development team.
- * Copyright (c) 2013,2014,2015,2016,2017, by the GROMACS development team, led by
+ * Copyright (c) 2013,2014,2015,2016,2017,2018,2019, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -64,7 +64,7 @@
 
 
 static void periodic_dist(int ePBC,
-                          matrix box, rvec x[], int n, int index[],
+                          matrix box, rvec x[], int n, const int index[],
                           real *rmin, real *rmax, int *min_ind)
 {
 #define NSHIFT_MAX 26
@@ -86,7 +86,6 @@ static void periodic_dist(int ePBC,
     {
         gmx_fatal(FARGS, "pbc = %s is not supported by g_mindist",
                   epbc_names[ePBC]);
-        nsz = 0; /* Keep compilers quiet */
     }
 
     nshift = 0;
@@ -325,13 +324,13 @@ static void calc_dist(real rcut, gmx_bool bPBC, int ePBC, matrix box, rvec x[],
     *rmax = std::sqrt(rmax2);
 }
 
-void dist_plot(const char *fn, const char *afile, const char *dfile,
-               const char *nfile, const char *rfile, const char *xfile,
-               real rcut, gmx_bool bMat, const t_atoms *atoms,
-               int ng, int *index[], int gnx[], char *grpn[], gmx_bool bSplit,
-               gmx_bool bMin, int nres, int *residue, gmx_bool bPBC, int ePBC,
-               gmx_bool bGroup, gmx_bool bEachResEachTime, gmx_bool bPrintResName,
-               const gmx_output_env_t *oenv)
+static void dist_plot(const char *fn, const char *afile, const char *dfile,
+                      const char *nfile, const char *rfile, const char *xfile,
+                      real rcut, gmx_bool bMat, const t_atoms *atoms,
+                      int ng, int *index[], int gnx[], char *grpn[], gmx_bool bSplit,
+                      gmx_bool bMin, int nres, int *residue, gmx_bool bPBC, int ePBC,
+                      gmx_bool bGroup, gmx_bool bEachResEachTime, gmx_bool bPrintResName,
+                      const gmx_output_env_t *oenv)
 {
     FILE            *atm, *dist, *num;
     t_trxstatus     *trxout;
@@ -369,10 +368,10 @@ void dist_plot(const char *fn, const char *afile, const char *dfile,
             snew(leg, 1);
             sprintf(buf, "Internal in %s", grpn[0]);
             leg[0] = gmx_strdup(buf);
-            xvgr_legend(dist, 0, (const char**)leg, oenv);
+            xvgr_legend(dist, 0, leg, oenv);
             if (num)
             {
-                xvgr_legend(num, 0, (const char**)leg, oenv);
+                xvgr_legend(num, 0, leg, oenv);
             }
         }
         else
@@ -386,10 +385,10 @@ void dist_plot(const char *fn, const char *afile, const char *dfile,
                     leg[j] = gmx_strdup(buf);
                 }
             }
-            xvgr_legend(dist, j, (const char**)leg, oenv);
+            xvgr_legend(dist, j, leg, oenv);
             if (num)
             {
-                xvgr_legend(num, j, (const char**)leg, oenv);
+                xvgr_legend(num, j, leg, oenv);
             }
         }
     }
@@ -401,10 +400,10 @@ void dist_plot(const char *fn, const char *afile, const char *dfile,
             sprintf(buf, "%s-%s", grpn[0], grpn[i+1]);
             leg[i] = gmx_strdup(buf);
         }
-        xvgr_legend(dist, ng-1, (const char**)leg, oenv);
+        xvgr_legend(dist, ng-1, leg, oenv);
         if (num)
         {
-            xvgr_legend(num, ng-1, (const char**)leg, oenv);
+            xvgr_legend(num, ng-1, leg, oenv);
         }
     }
 
@@ -412,7 +411,7 @@ void dist_plot(const char *fn, const char *afile, const char *dfile,
     {
         sprintf(buf, "%simum Distance", bMin ? "Min" : "Max");
         respertime = xvgropen(rfile, buf, output_env_get_time_label(oenv), "Distance (nm)", oenv);
-        xvgr_legend(respertime, ng-1, (const char**)leg, oenv);
+        xvgr_legend(respertime, ng-1, leg, oenv);
         if (bPrintResName && output_env_get_print_xvgr_codes(oenv) )
         {
             fprintf(respertime, "# ");
@@ -581,7 +580,7 @@ void dist_plot(const char *fn, const char *afile, const char *dfile,
 
         sprintf(buf, "%simum Distance", bMin ? "Min" : "Max");
         res = xvgropen(rfile, buf, "Residue (#)", "Distance (nm)", oenv);
-        xvgr_legend(res, ng-1, (const char**)leg, oenv);
+        xvgr_legend(res, ng-1, leg, oenv);
         for (j = 0; j < nres; j++)
         {
             fprintf(res, "%4d", j+1);
@@ -594,10 +593,20 @@ void dist_plot(const char *fn, const char *afile, const char *dfile,
         xvgrclose(res);
     }
 
-    sfree(x0);
+    if (x0)
+    {
+        sfree(x0);
+    }
+
+    int freeLeg = bMat ? (ng == 1 ? 1 : (ng*(ng-1))/2)  : ng - 1;
+    for (int i = 0; i < freeLeg; i++)
+    {
+        sfree(leg[i]);
+    }
+    sfree(leg);
 }
 
-int find_residues(const t_atoms *atoms, int n, int index[], int **resindex)
+static int find_residues(const t_atoms *atoms, int n, const int index[], int **resindex)
 {
     int  i;
     int  nres      = 0, resnr, presnr = 0;
@@ -629,7 +638,7 @@ int find_residues(const t_atoms *atoms, int n, int index[], int **resindex)
     return nres;
 }
 
-void dump_res(FILE *out, int nres, int *resindex, int index[])
+static void dump_res(FILE *out, int nres, int *resindex, int index[])
 {
     int i, j;
 
@@ -660,17 +669,19 @@ int gmx_mindist(int argc, char *argv[])
         "With option [TT]-pi[tt] the minimum distance of a group to its",
         "periodic image is plotted. This is useful for checking if a protein",
         "has seen its periodic image during a simulation. Only one shift in",
-        "each direction is considered, giving a total of 26 shifts.",
+        "each direction is considered, giving a total of 26 shifts. Note",
+        "that periodicity information is required from the file supplied with",
+        "with [TT]-s[tt], either as a .tpr file or a .pdb file with CRYST1 fields.",
         "It also plots the maximum distance within the group and the lengths",
         "of the three box vectors.[PAR]",
         "Also [gmx-distance] and [gmx-pairdist] calculate distances."
     };
 
-    static gmx_bool   bMat             = FALSE, bPI = FALSE, bSplit = FALSE, bMax = FALSE, bPBC = TRUE;
-    static gmx_bool   bGroup           = FALSE;
-    static real       rcutoff          = 0.6;
-    static int        ng               = 1;
-    static gmx_bool   bEachResEachTime = FALSE, bPrintResName = FALSE;
+    gmx_bool          bMat             = FALSE, bPI = FALSE, bSplit = FALSE, bMax = FALSE, bPBC = TRUE;
+    gmx_bool          bGroup           = FALSE;
+    real              rcutoff          = 0.6;
+    int               ng               = 1;
+    gmx_bool          bEachResEachTime = FALSE, bPrintResName = FALSE;
     t_pargs           pa[]             = {
         { "-matrix", FALSE, etBOOL, {&bMat},
           "Calculate half a matrix of group-group distances" },
@@ -696,7 +707,7 @@ int gmx_mindist(int argc, char *argv[])
     gmx_output_env_t *oenv;
     t_topology       *top  = nullptr;
     int               ePBC = -1;
-    rvec             *x;
+    rvec             *x    = nullptr;
     matrix            box;
     gmx_bool          bTop = FALSE;
 
@@ -799,6 +810,10 @@ int gmx_mindist(int argc, char *argv[])
             dump_res(debug, nres, residues, index[0]);
         }
     }
+    else if (bEachResEachTime || bPrintResName)
+    {
+        gmx_fatal(FARGS, "Option -or needs to be set to print residues");
+    }
 
     if (bPI)
     {
@@ -817,6 +832,18 @@ int gmx_mindist(int argc, char *argv[])
     {
         do_view(oenv, numfnm, "-nxy");
     }
+
+    output_env_done(oenv);
+    done_top(top);
+    for (int i = 0; i < ng; i++)
+    {
+        sfree(index[i]);
+    }
+    sfree(index);
+    sfree(gnx);
+    sfree(x);
+    sfree(grpname);
+    sfree(top);
 
     return 0;
 }

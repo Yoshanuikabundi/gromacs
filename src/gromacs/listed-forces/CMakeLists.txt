@@ -1,7 +1,7 @@
 #
 # This file is part of the GROMACS molecular simulation package.
 #
-# Copyright (c) 2014,2015,2016, by the GROMACS development team, led by
+# Copyright (c) 2014,2015,2016,2018, by the GROMACS development team, led by
 # Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
 # and including many others, as listed in the AUTHORS file in the
 # top-level source directory and at http://www.gromacs.org.
@@ -32,10 +32,25 @@
 # To help us fund GROMACS development, we humbly ask that you cite
 # the research papers on the package. Check out http://www.gromacs.org.
 
-file(GLOB LISTED_FORCES_SOURCES *.cpp)
-set(LIBGROMACS_SOURCES ${LIBGROMACS_SOURCES} ${LISTED_FORCES_SOURCES} PARENT_SCOPE)
+gmx_add_libgromacs_sources(
+    bonded.cpp
+    disre.cpp
+    gpubonded-impl.cpp
+    listed-forces.cpp
+    listed-internal.cpp
+    manage-threading.cpp
+    orires.cpp
+    pairs.cpp
+    position-restraints.cpp
+    restcbt.cpp
+    )
 
-gmx_install_headers(listed-forces.h)
+if(GMX_USE_CUDA)
+    gmx_add_libgromacs_sources(
+       gpubonded-impl.cu
+       gpubondedkernels.cu
+       )
+endif()
 
 if (BUILD_TESTING)
      add_subdirectory(tests)

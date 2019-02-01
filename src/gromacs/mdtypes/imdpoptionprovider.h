@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2016,2017, by the GROMACS development team, led by
+ * Copyright (c) 2016,2017,2018, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -49,6 +49,7 @@ namespace gmx
 
 class IKeyValueTreeTransformRules;
 class IOptionsContainerWithSections;
+class KeyValueTreeObjectBuilder;
 
 /*! \libinternal \brief
  * Interface for handling mdp/tpr input to a mdrun module.
@@ -98,9 +99,11 @@ class IMdpOptionProvider
          * module.
          */
         virtual void initMdpOptions(IOptionsContainerWithSections *options) = 0;
+        //! Prepares to write a flat key-value tree like an mdp file.
+        virtual void buildMdpOutput(KeyValueTreeObjectBuilder *builder) const = 0;
 
     protected:
-        ~IMdpOptionProvider() {}
+        virtual ~IMdpOptionProvider() {}
 };
 
 } // namespace gmx

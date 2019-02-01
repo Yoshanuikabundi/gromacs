@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2010,2011,2012,2013,2014,2015,2016, by the GROMACS development team, led by
+ * Copyright (c) 2010,2011,2012,2013,2014,2015,2016,2017,2018,2019, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -106,10 +106,9 @@
  * <H3>Implementation helpers</H3>
  *
  * The header basedefinitions.h contains common definitions and macros used
- * throughout \Gromacs.  It includes fixed-width integer types (`gmx_int64_t`
- * and friends), `gmx_bool` for C code, some macros for compiler-specific
- * attributes, and ::GMX_UNUSED_VALUE and ::GMX_IGNORE_RETURN_VALUE for
- * handling warnings about unused values.
+ * throughout \Gromacs. It includes `gmx_bool` for C code, some macros for
+ * compiler-specific attributes, and ::GMX_UNUSED_VALUE and ::GMX_IGNORE_RETURN_VALUE
+ * for handling warnings about unused values.
  *
  * The header classhelpers.h implements a gmx::PrivateImplPointer template for easily
  * writing classes that use the private implementation idiom.  This header also
@@ -125,7 +124,7 @@
  * The header init.h declares gmx::init() and gmx::finalize() for initializing
  * and deinitializing the \Gromacs library.
  *
- * The header arrayref.h implements a gmx::ConstArrayRef class for exposing a
+ * The header arrayref.h implements a gmx::ArrayRef class for exposing a
  * C array or part of a std::vector (basically, any continuous stretch of
  * memory) throuh a std::vector-like interface.
  *
@@ -141,7 +140,7 @@
  * that needs to include omp.h for OpenMP functions.
  *
  * The header gmxregex.h declares gmx::Regex and regexMatch() for basic regular
- * expression matching using an interface similar to C++11.
+ * expression matching using an interface similar to C++11 std::regex.
  *
  * The header messagestringcollector.h declares a gmx::MessageStringCollector
  * class for composing messages with context information.

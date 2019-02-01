@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2014,2015,2017, by the GROMACS development team, led by
+ * Copyright (c) 2014,2015,2017,2018,2019, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -33,7 +33,7 @@
  * the research papers on the package. Check out http://www.gromacs.org.
  */
 /*! \internal \file
- *  \brief Stub functions for non-GPU builds
+ *  \brief Function definitions for non-GPU builds
  *
  *  \author Mark Abraham <mark.j.abraham@gmail.com>
  */
@@ -41,14 +41,77 @@
 
 #include "gpu_utils.h"
 
-/*! \brief Set allocation functions used by the GPU host
- *
- * Since GPU support is not configured, there is no host memory to
- * allocate. */
-void gpu_set_host_malloc_and_free(bool,
-                                  gmx_host_alloc_t **nb_alloc,
-                                  gmx_host_free_t  **nb_free)
+#include "config.h"
+
+#include <cassert>
+
+#include "gromacs/hardware/gpu_hw_info.h"
+#include "gromacs/utility/arrayref.h"
+#include "gromacs/utility/smalloc.h"
+#include "gromacs/utility/stringutil.h"
+
+#if !GMX_GPU
+int gpu_info_get_stat(const gmx_gpu_info_t & /*unused*/, int /*unused*/)
 {
-    *nb_alloc = nullptr;
-    *nb_free  = nullptr;
+    return egpuNonexistent;
+}
+#endif
+
+void free_gpu_info(const gmx_gpu_info_t *gpu_info)
+{
+    sfree(static_cast<void*>(gpu_info->gpu_dev)); //circumvent is_pod check in sfree
+}
+
+std::vector<int> getCompatibleGpus(const gmx_gpu_info_t &gpu_info)
+{
+    // Possible minor over-allocation here, but not important for anything
+    std::vector<int> compatibleGpus;
+    compatibleGpus.reserve(gpu_info.n_dev);
+    for (int i = 0; i < gpu_info.n_dev; i++)
+    {
+        assert(gpu_info.gpu_dev);
+        if (gpu_info_get_stat(gpu_info, i) == egpuCompatible)
+        {
+            compatibleGpus.push_back(i);
+        }
+    }
+    return compatibleGpus;
+}
+
+const char *getGpuCompatibilityDescription(const gmx_gpu_info_t &gpu_info,
+                                           int                   index)
+{
+    return (index >= gpu_info.n_dev ?
+            gpu_detect_res_str[egpuNonexistent] :
+            gpu_detect_res_str[gpu_info_get_stat(gpu_info, index)]);
+}
+/*! \brief Help build a descriptive message in \c error if there are
+ * \c errorReasons why nonbondeds on a GPU are not supported.
+ *
+ * \returns Whether the lack of errorReasons indicate there is support. */
+static bool
+addMessageIfNotSupported(gmx::ArrayRef <const std::string> errorReasons,
+                         std::string                      *error)
+{
+    bool isSupported = errorReasons.empty();
+    if (!isSupported && error)
+    {
+        *error  = "Nonbonded interactions cannot run on GPUs: ";
+        *error += joinStrings(errorReasons, "; ") + ".";
+    }
+    return isSupported;
+}
+
+bool buildSupportsNonbondedOnGpu(std::string *error)
+{
+    std::vector<std::string> errorReasons;
+    if (GMX_DOUBLE)
+    {
+        errorReasons.emplace_back("double precision");
+    }
+    if (GMX_GPU == GMX_GPU_NONE)
+    {
+        errorReasons.emplace_back("non-GPU build of GROMACS");
+    }
+    return addMessageIfNotSupported(errorReasons, error);
 }
